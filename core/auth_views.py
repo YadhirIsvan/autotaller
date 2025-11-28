@@ -6,9 +6,12 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from django.contrib.auth import authenticate, login, logout
+from django.views.decorators.csrf import csrf_exempt
 from .serializers import UsuarioSerializer, UsuarioCreateSerializer
+from .models import Usuario
 
 
+@csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_view(request):
@@ -22,8 +25,18 @@ def login_view(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Autenticar usuario
-    user = authenticate(request, username=email, password=password)
+    # Buscar usuario por email
+    try:
+        usuario = Usuario.objects.get(email=email)
+        username = usuario.username
+    except Usuario.DoesNotExist:
+        return Response(
+            {'error': 'Credenciales inválidas'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    
+    # Autenticar con username
+    user = authenticate(request, username=username, password=password)
     
     if user is None:
         return Response(
@@ -47,6 +60,7 @@ def login_view(request):
     })
 
 
+@csrf_exempt
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def logout_view(request):
@@ -63,6 +77,7 @@ def current_user_view(request):
     return Response(serializer.data)
 
 
+@csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register_view(request):

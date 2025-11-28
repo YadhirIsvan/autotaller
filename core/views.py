@@ -20,7 +20,8 @@ from .serializers import (
 )
 from .services.usuario_service import UsuarioService
 from .services.vehiculo_service import VehiculoService
-from .services.calendario_service import CalendarioService
+# ✅ CORREGIDO: Importar las clases correctas
+from .services.calendario_service import CalendarioPrincipalService, CalendarioTalleresService
 
 
 # =====================
@@ -86,21 +87,21 @@ class UsuarioViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        usuarios = UsuarioService.obtener_por_tipo(tipo)
+        usuarios = UsuarioService().get_usuarios_by_tipo(tipo)
         serializer = self.get_serializer(usuarios, many=True)
         return Response(serializer.data)
     
     @action(detail=False, methods=['get'])
     def talleres(self, request):
         """Obtener solo talleres"""
-        talleres = UsuarioService.obtener_talleres()
+        talleres = UsuarioService().get_talleres_activos()
         serializer = self.get_serializer(talleres, many=True)
         return Response(serializer.data)
     
     @action(detail=False, methods=['get'])
     def clientes(self, request):
         """Obtener solo clientes"""
-        clientes = UsuarioService.obtener_clientes()
+        clientes = UsuarioService().get_clientes_activos()
         serializer = self.get_serializer(clientes, many=True)
         return Response(serializer.data)
     
@@ -116,7 +117,11 @@ class UsuarioViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        usuario = UsuarioService.cambiar_estado(usuario.id, activo)
+        if activo:
+            usuario = UsuarioService().activar_usuario(usuario.id)
+        else:
+            usuario = UsuarioService().desactivar_usuario(usuario.id)
+        
         serializer = self.get_serializer(usuario)
         return Response(serializer.data)
 
@@ -185,8 +190,9 @@ class ModeloViewSet(viewsets.ModelViewSet):
             return Response({'atendible': modelo.atendible})
         
         try:
+            from .repositories.vehiculo_repository import ModeloRepository
             ano = int(ano)
-            atendible = VehiculoService.validar_modelo_atendible(modelo.id, ano)
+            atendible = ModeloRepository.is_modelo_atendible(modelo.id, ano)
             return Response({'atendible': atendible})
         except ValueError:
             return Response(
@@ -221,7 +227,7 @@ class VehiculoViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def mis_vehiculos(self, request):
         """Obtener vehículos del usuario actual"""
-        vehiculos = VehiculoService.obtener_por_propietario(request.user.id)
+        vehiculos = VehiculoService().get_vehiculos_by_propietario(request.user.id)
         serializer = self.get_serializer(vehiculos, many=True)
         return Response(serializer.data)
     
@@ -229,11 +235,11 @@ class VehiculoViewSet(viewsets.ModelViewSet):
     def validar(self, request, pk=None):
         """Validar si un vehículo puede ser atendido"""
         vehiculo = self.get_object()
-        puede_atender, mensaje = VehiculoService.puede_ser_atendido(vehiculo.id)
+        puede_atender = VehiculoService().validar_vehiculo_atendible(vehiculo.id)
         
         return Response({
             'puede_atender': puede_atender,
-            'mensaje': mensaje
+            'mensaje': 'El vehículo puede ser atendido' if puede_atender else 'El modelo/año no es atendible'
         })
 
 
@@ -265,7 +271,8 @@ class TampBlockPrincipalViewSet(viewsets.ModelViewSet):
         else:
             fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
         
-        fechas = CalendarioService.obtener_fechas_disponibles_principal(
+        # ✅ CORREGIDO: Usar CalendarioPrincipalService
+        fechas = CalendarioPrincipalService().get_bloques_disponibles(
             fecha_inicio, fecha_fin
         )
         serializer = self.get_serializer(fechas, many=True)
@@ -275,16 +282,15 @@ class TampBlockPrincipalViewSet(viewsets.ModelViewSet):
     def reservar(self, request, pk=None):
         """Reservar un espacio"""
         tamp_block = self.get_object()
-        exito = CalendarioService.reservar_espacio_principal(tamp_block.id)
         
-        if exito:
-            serializer = self.get_serializer(
-                TampBlockPrincipal.objects.get(id=tamp_block.id)
-            )
+        # ✅ CORREGIDO: Usar CalendarioPrincipalService
+        try:
+            bloque = CalendarioPrincipalService().reservar_bloque(tamp_block.id)
+            serializer = self.get_serializer(bloque)
             return Response(serializer.data)
-        else:
+        except Exception as e:
             return Response(
-                {'error': 'No hay espacios disponibles'},
+                {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -330,7 +336,8 @@ class TampBlockTalleresViewSet(viewsets.ModelViewSet):
         else:
             fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
         
-        fechas = CalendarioService.obtener_fechas_disponibles_taller(
+        # ✅ CORREGIDO: Usar CalendarioTalleresService
+        fechas = CalendarioTalleresService().get_bloques_disponibles_taller(
             int(taller_id), fecha_inicio, fecha_fin
         )
         serializer = self.get_serializer(fechas, many=True)

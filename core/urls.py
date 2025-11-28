@@ -8,7 +8,28 @@ from .views import (
     MarcaViewSet, ModeloViewSet, VehiculoViewSet,
     TampBlockPrincipalViewSet, TampBlockTalleresViewSet
 )
-from .auth_views import login_view, logout_view, current_user_view, register_view
+try:
+    from .auth_views import login_view, logout_view, current_user_view, register_view
+except ImportError:
+    # Si no existe auth_views.py todavía, crear placeholder
+    from rest_framework.decorators import api_view
+    from rest_framework.response import Response
+    
+    @api_view(['POST'])
+    def login_view(request):
+        return Response({'error': 'Auth views not implemented yet'})
+    
+    @api_view(['POST'])
+    def logout_view(request):
+        return Response({'error': 'Auth views not implemented yet'})
+    
+    @api_view(['GET'])
+    def current_user_view(request):
+        return Response({'error': 'Auth views not implemented yet'})
+    
+    @api_view(['POST'])
+    def register_view(request):
+        return Response({'error': 'Auth views not implemented yet'})
 
 router = DefaultRouter()
 

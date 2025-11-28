@@ -1,0 +1,229 @@
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+/home/yadhir/Documentos/arquitecturas/monolitica/django-projects/autotaller/servicios/views.py changed, reloading.
+Watching for file changes with StatReloader
+/home/yadhir/Documentos/arquitecturas/monolitica/django-projects/autotaller/solicitudes/views.py changed, reloading.
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+/home/yadhir/Documentos/arquitecturas/monolitica/django-projects/autotaller/solicitudes/views.py changed, reloading.
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+/app/core/models.py changed, reloading.
+Watching for file changes with StatReloader
+/app/core/migrations/0002_datos_iniciales.py changed, reloading.
+Watching for file changes with StatReloader
+/app/core/models.py changed, reloading.
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+/app/autotaller/settings.py changed, reloading.
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+Request: GET / | User: Anonymous | IP: 172.20.0.1
+Response: GET / | Status: 403 | Duration: 0.02s
+Forbidden: /
+Request: GET /favicon.ico | User: Anonymous | IP: 172.20.0.1
+Response: GET /favicon.ico | Status: 404 | Duration: 0.01s
+Not Found: /favicon.ico
+Request: GET / | User: Anonymous | IP: 172.20.0.1
+Response: GET / | Status: 403 | Duration: 0.00s
+Forbidden: /
+Request: POST /api/core/auth/login/ | User: Anonymous | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 404 | Duration: 0.01s
+Not Found: /api/core/auth/login/
+Request: POST /api/core/auth/login/ | User: Anonymous | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 404 | Duration: 0.01s
+Not Found: /api/core/auth/login/
+Watching for file changes with StatReloader
+Request: POST /api/core/auth/login/ | User: Anonymous | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 401 | Duration: 0.10s
+Unauthorized: /api/core/auth/login/
+Request: POST /api/core/auth/login/ | User: Anonymous | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 401 | Duration: 0.10s
+Unauthorized: /api/core/auth/login/
+Request: POST /api/core/auth/login/ | User: Anonymous | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 401 | Duration: 0.12s
+Unauthorized: /api/core/auth/login/
+Watching for file changes with StatReloader
+Request: POST /api/core/auth/login/ | User: Anonymous | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 200 | Duration: 0.11s
+Request: POST /api/core/auth/login/ | User: Anonymous | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 200 | Duration: 0.10s
+Request: POST /api/core/auth/register/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/register/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/register/
+Watching for file changes with StatReloader
+Request: POST /api/core/auth/register/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/register/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/register/
+Request: POST /api/core/auth/login/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/login/
+Request: POST /api/core/auth/login/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/login/
+Request: POST /api/core/auth/login/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/login/
+Request: POST /api/core/auth/login/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/login/
+Watching for file changes with StatReloader
+/app/core/models.py changed, reloading.
+Watching for file changes with StatReloader
+Request: POST /api/core/auth/register/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/register/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/register/
+Request: POST /api/core/auth/login/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/login/
+Request: POST /api/core/auth/logout/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/logout/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/logout/
+Request: POST /api/core/auth/logout/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/logout/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/logout/
+Request: POST /api/core/auth/logout/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/logout/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/logout/
+Request: POST /api/core/auth/logout/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/logout/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/logout/
+Request: POST /api/core/auth/login/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/login/
+Request: POST /api/core/auth/login/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/login/
+Request: POST /api/core/auth/login/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/login/
+Request: POST /api/core/auth/login/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/login/
+Request: POST /api/core/auth/logout/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/logout/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/logout/
+Request: POST /api/core/auth/logout/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/logout/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/logout/
+Watching for file changes with StatReloader
+Request: POST /api/core/auth/register/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/register/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/register/
+Request: POST /api/core/auth/register/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/register/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/register/
+Request: POST /api/core/auth/logout/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/logout/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/logout/
+Request: POST /api/core/auth/register/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/register/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/register/
+Request: POST /api/core/auth/login/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/login/
+Request: POST /api/core/auth/register/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/register/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/register/
+/app/middlewares/auth_middleware.py changed, reloading.
+Watching for file changes with StatReloader
+/app/middlewares/auth_middleware.py changed, reloading.
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+Request: POST /api/core/auth/register/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/register/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/register/
+Request: POST /api/core/auth/register/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/register/ | Status: 403 | Duration: 0.01s
+Forbidden: /api/core/auth/register/
+Watching for file changes with StatReloader
+Request: POST /api/core/auth/register/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/register/ | Status: 201 | Duration: 0.12s
+Request: POST /api/core/auth/login/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 200 | Duration: 0.11s
+Request: GET /api/core/auth/current-user/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: GET /api/core/auth/current-user/ | Status: 200 | Duration: 0.01s
+Request: POST /api/core/auth/logout/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/auth/logout/ | Status: 200 | Duration: 0.05s
+Request: POST /api/core/auth/login/ | User: Anonymous | IP: 172.20.0.1
+Response: POST /api/core/auth/login/ | Status: 200 | Duration: 0.13s
+Request: GET /api/core/tipos-usuario/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: GET /api/core/tipos-usuario/ | Status: 200 | Duration: 0.01s
+Request: POST /api/core/usuarios/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/usuarios/ | Status: 400 | Duration: 0.01s
+Bad Request: /api/core/usuarios/
+Request: POST /api/core/usuarios/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/usuarios/ | Status: 400 | Duration: 0.01s
+Bad Request: /api/core/usuarios/
+Request: POST /api/core/usuarios/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/usuarios/ | Status: 400 | Duration: 0.01s
+Bad Request: /api/core/usuarios/
+Request: POST /api/core/usuarios/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/usuarios/ | Status: 400 | Duration: 0.01s
+Bad Request: /api/core/usuarios/
+Request: POST /api/core/usuarios/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/usuarios/ | Status: 201 | Duration: 0.12s
+Request: POST /api/core/usuarios/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/usuarios/ | Status: 400 | Duration: 0.01s
+Bad Request: /api/core/usuarios/
+Request: POST /api/core/usuarios/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/usuarios/ | Status: 201 | Duration: 0.16s
+Request: POST /api/core/usuarios/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/usuarios/ | Status: 201 | Duration: 0.13s
+Request: GET /api/core/usuarios/talleres/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: GET /api/core/usuarios/talleres/ | Status: 200 | Duration: 0.01s
+Request: GET /api/core/usuarios/clientes/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: GET /api/core/usuarios/clientes/ | Status: 200 | Duration: 0.01s
+Request: GET /api/core/tipos-usuario/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: GET /api/core/tipos-usuario/ | Status: 200 | Duration: 0.01s
+Request: POST /api/core/marcas/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/marcas/ | Status: 201 | Duration: 0.05s
+Request: POST /api/core/marcas/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/marcas/ | Status: 201 | Duration: 0.01s
+Request: POST /api/core/marcas/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/marcas/ | Status: 201 | Duration: 0.01s
+Request: POST /api/core/marcas/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/marcas/ | Status: 201 | Duration: 0.01s
+Request: GET /api/core/marcas/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: GET /api/core/marcas/ | Status: 200 | Duration: 0.01s
+Request: POST /api/core/modelos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/modelos/ | Status: 201 | Duration: 0.01s
+Request: POST /api/core/modelos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/modelos/ | Status: 201 | Duration: 0.01s
+Request: POST /api/core/modelos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/modelos/ | Status: 201 | Duration: 0.01s
+Request: POST /api/core/modelos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/modelos/ | Status: 201 | Duration: 0.01s
+Request: POST /api/core/modelos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/modelos/ | Status: 201 | Duration: 0.01s
+Request: POST /api/core/modelos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/modelos/ | Status: 201 | Duration: 0.01s
+Request: POST /api/core/modelos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/modelos/ | Status: 201 | Duration: 0.01s
+Request: POST /api/core/modelos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/modelos/ | Status: 201 | Duration: 0.05s
+Request: POST /api/core/modelos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/modelos/ | Status: 201 | Duration: 0.01s
+Request: POST /api/core/modelos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/modelos/ | Status: 201 | Duration: 0.01s
+Request: POST /api/core/modelos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/modelos/ | Status: 201 | Duration: 0.01s
+Request: GET /api/core/modelos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: GET /api/core/modelos/ | Status: 200 | Duration: 0.01s
+Request: POST /api/core/vehiculos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/core/vehiculos/ | Status: 201 | Duration: 0.01s
+Request: GET /api/core/vehiculos/mis_vehiculos/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: GET /api/core/vehiculos/mis_vehiculos/ | Status: 200 | Duration: 0.01s
+Request: GET /api/core/vehiculos/1/validar/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: GET /api/core/vehiculos/1/validar/ | Status: 200 | Duration: 0.01s
+Request: POST /api/solicitudes/solicitudes/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/solicitudes/solicitudes/ | Status: 400 | Duration: 0.01s
+Bad Request: /api/solicitudes/solicitudes/
+Request: POST /api/solicitudes/solicitudes/ | User: Administrador Principal (administrador) | IP: 172.20.0.1
+Response: POST /api/solicitudes/solicitudes/ | Status: 400 | Duration: 0.01s
+Bad Request: /api/solicitudes/solicitudes/

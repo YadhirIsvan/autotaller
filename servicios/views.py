@@ -17,9 +17,10 @@ from .serializers import (
     ReservacionServicioCreateSerializer, ActualizarProgresoSerializer,
     ReservacionTampBlockSerializer, ProgresoServicioSerializer
 )
-from .services.servicio_service import ServicioService
-from .services.asignacion_service import AsignacionService
-from .services.progreso_service import ProgresoService
+# ✅ CORREGIDO: Importar las clases correctas
+from .services.servicio_service import ServicioService, ServicioTallerService
+from .services.asignacion_service import AsignacionServicioService
+from .services.progreso_service import ProgresoServicioService
 
 
 # =====================
@@ -58,7 +59,7 @@ class ServicioViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def activos(self, request):
         """Solo servicios activos"""
-        servicios = ServicioService.obtener_activos()
+        servicios = ServicioService().get_all_servicios(activo=True)
         serializer = self.get_serializer(servicios, many=True)
         return Response(serializer.data)
     
@@ -72,15 +73,14 @@ class ServicioViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        servicios = ServicioService.obtener_por_categoria(int(categoria_id))
+        servicios = ServicioService().get_servicios_by_categoria(int(categoria_id))
         serializer = self.get_serializer(servicios, many=True)
         return Response(serializer.data)
     
     @action(detail=True, methods=['get'])
     def talleres_disponibles(self, request, pk=None):
         """Obtener talleres que ofrecen este servicio"""
-        servicio = self.get_object()
-        talleres = ServicioService.obtener_talleres_por_servicio(servicio.id)
+        talleres = ServicioTallerService().get_talleres_por_servicio(int(pk))
         serializer = ServicioUsuarioTallerSerializer(talleres, many=True)
         return Response(serializer.data)
 
@@ -117,10 +117,7 @@ class ServicioUsuarioTallerViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        servicios = ServicioUsuarioTaller.objects.filter(
-            id_usuario_taller=request.user,
-            activo=True
-        )
+        servicios = ServicioTallerService().get_servicios_by_taller(request.user.id)
         serializer = self.get_serializer(servicios, many=True)
         return Response(serializer.data)
     
@@ -134,7 +131,7 @@ class ServicioUsuarioTallerViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        servicios = ServicioService.obtener_servicios_taller(int(taller_id))
+        servicios = ServicioTallerService().get_servicios_by_taller(int(taller_id))
         serializer = self.get_serializer(servicios, many=True)
         return Response(serializer.data)
 
@@ -178,10 +175,11 @@ class ReservacionServicioViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def mis_servicios(self, request):
         """Obtener servicios del usuario actual"""
+        service = AsignacionServicioService()
+        
         if request.user.id_tipo.cve == 'taller':
-            servicios = AsignacionService.obtener_por_taller(request.user.id)
+            servicios = service.get_servicios_by_taller(request.user.id)
         elif request.user.id_tipo.cve == 'cliente':
-            # Obtener servicios de las reservaciones del cliente
             servicios = ReservacionServicio.objects.filter(
                 id_reservacion_taller_principal__id_solicitud__id_usuario=request.user
             )
@@ -194,7 +192,6 @@ class ReservacionServicioViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def asignar_servicio(self, request):
         """Asignar un servicio a un taller"""
-        # Verificar permisos
         if request.user.id_tipo.cve not in ['administrador', 'agente']:
             return Response(
                 {'error': 'No tiene permisos para asignar servicios'},
@@ -205,13 +202,8 @@ class ReservacionServicioViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         
         try:
-            reservacion = AsignacionService.asignar_servicio(
-                serializer.validated_data['id_reservacion_taller_principal'].id,
-                serializer.validated_data['id_servicio_usuario_taller'].id,
-                serializer.validated_data['id_estado'].id,
-                serializer.validated_data.get('fechas', []),
-                serializer.validated_data.get('observaciones', '')
-            )
+            service = AsignacionServicioService()
+            reservacion = service.asignar_servicio(serializer.validated_data)
             
             result_serializer = ReservacionServicioDetailSerializer(reservacion)
             return Response(result_serializer.data, status=status.HTTP_201_CREATED)
@@ -236,7 +228,8 @@ class ReservacionServicioViewSet(viewsets.ModelViewSet):
                 )
         
         try:
-            servicio_actualizado = AsignacionService.iniciar_servicio(servicio.id)
+            service = AsignacionServicioService()
+            servicio_actualizado = service.iniciar_servicio(servicio.id)
             serializer = self.get_serializer(servicio_actualizado)
             return Response(serializer.data)
         
@@ -263,16 +256,21 @@ class ReservacionServicioViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         
         try:
-            servicio_actualizado = ProgresoService.actualizar_progreso(
-                servicio.id,
-                serializer.validated_data['porcentaje'],
-                request.user.id,
-                serializer.validated_data.get('dias_estimados'),
-                serializer.validated_data.get('comentario', ''),
-                serializer.validated_data.get('evidencia_url', '')
-            )
+            data = {
+                'id_reservacion_servicio': servicio.id,
+                'porcentaje_nuevo': serializer.validated_data['porcentaje'],
+                'dias_estimados': serializer.validated_data.get('dias_estimados'),
+                'comentario': serializer.validated_data.get('comentario', ''),
+                'evidencia_url': serializer.validated_data.get('evidencia_url', ''),
+                'actualizado_por': request.user.id
+            }
             
-            result_serializer = ReservacionServicioDetailSerializer(servicio_actualizado)
+            service = ProgresoServicioService()
+            service.actualizar_progreso(data)
+            
+            # Obtener servicio actualizado
+            servicio.refresh_from_db()
+            result_serializer = ReservacionServicioDetailSerializer(servicio)
             return Response(result_serializer.data)
         
         except Exception as e:
@@ -295,7 +293,8 @@ class ReservacionServicioViewSet(viewsets.ModelViewSet):
                 )
         
         try:
-            servicio_actualizado = ProgresoService.finalizar_servicio(servicio.id)
+            service = AsignacionServicioService()
+            servicio_actualizado = service.completar_servicio(servicio.id)
             serializer = self.get_serializer(servicio_actualizado)
             return Response(serializer.data)
         
@@ -309,7 +308,8 @@ class ReservacionServicioViewSet(viewsets.ModelViewSet):
     def historial(self, request, pk=None):
         """Obtener historial de progreso"""
         servicio = self.get_object()
-        historial = ProgresoService.obtener_historial(servicio.id)
+        service = ProgresoServicioService()
+        historial = service.get_historial_by_servicio(servicio.id)
         serializer = ProgresoServicioSerializer(historial, many=True)
         return Response(serializer.data)
     
@@ -323,7 +323,7 @@ class ReservacionServicioViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        servicios = AsignacionService.obtener_por_estado(estado)
+        servicios = ReservacionServicio.objects.filter(id_estado__clave=estado)
         serializer = self.get_serializer(servicios, many=True)
         return Response(serializer.data)
 
@@ -358,6 +358,7 @@ class ProgresoServicioViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        progreso = ProgresoService.obtener_historial(int(servicio_id))
+        service = ProgresoServicioService()
+        progreso = service.get_historial_by_servicio(int(servicio_id))
         serializer = self.get_serializer(progreso, many=True)
         return Response(serializer.data)

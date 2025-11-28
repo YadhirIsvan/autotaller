@@ -79,7 +79,7 @@ class Estado(models.Model):
         (TIPO_SERVICIO, 'Servicio'),
     ]
     
-    clave = models.CharField(max_length=50, unique=True)
+    clave = models.CharField(max_length=50)  # ⬅️ SIN unique=True
     descripcion = models.CharField(max_length=200)
     tipo = models.CharField(max_length=50, choices=TIPO_CHOICES)
     
@@ -87,6 +87,7 @@ class Estado(models.Model):
         db_table = 'estados'
         verbose_name = 'Estado'
         verbose_name_plural = 'Estados'
+        unique_together = [['clave', 'tipo']]  # ⬅️ ESTO ES IMPORTANTE
     
     def __str__(self):
         return f"{self.descripcion} ({self.tipo})"

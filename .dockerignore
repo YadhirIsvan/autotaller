@@ -1,0 +1,15 @@
+cat > .dockerignore << 'EOF'
+__pycache__
+*.pyc
+*.pyo
+venv/
+valuecar-env/
+*.log
+db.sqlite3
+.git
+.vscode
+.idea
+.DS_Store
+EOF
+
+echo "✅ .dockerignore creado!"

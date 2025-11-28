@@ -4,26 +4,63 @@
 
 ---
 
-## 📄 ./requirements.txt
+## 📄 ./docker-compose.yml
 
 ```python
-Django==5.0
-djangorestframework==3.14.0
-django-cors-headers==4.3.1
-python-decouple==3.8
-psycopg2-binary==2.9.9
-Pillow==10.2.0
-python-decouple
+services:
+  db:
+    image: postgres:15
+    container_name: postgres_autotaller
+    restart: always
+    environment:
+      POSTGRES_DB: autotaller_db
+      POSTGRES_USER: autotaller_user
+      POSTGRES_PASSWORD: superpass123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autotaller_user -d autotaller_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-```
+  web:
+    build: .
+    container_name: django_autotaller
+    restart: always
+    # ✅ CAMBIO: Sin migrate automático al inicio
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_NAME: autotaller_db
+      DB_USER: autotaller_user
+      DB_PASSWORD: superpass123
+      DB_HOST: db
+      DB_PORT: 5432
+      PYTHONUNBUFFERED: 1
 
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin_autotaller
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
 
----
-
-## 📄 ./PROYECTO_COMPLETO.md
-
-```python
-
+volumes:
+  postgres_data:
 ```
 
 
@@ -114,6 +151,330 @@ with open(OUTPUT_FILE, "w", encoding="utf-8") as salida:
 
 print(f"\n\n✅ Archivo generado exitosamente: {OUTPUT_FILE}\n")
 
+```
+
+
+---
+
+## 📄 ./requirements.txt
+
+```python
+# ================================
+# CORE DJANGO
+# ================================
+Django==5.0
+python-decouple==3.8
+
+# ================================
+# DATABASE
+# ================================
+psycopg2-binary==2.9.9
+
+# ================================
+# REST FRAMEWORK
+# ================================
+djangorestframework==3.14.0
+
+# ================================
+# CORS
+# ================================
+django-cors-headers==4.3.1
+
+# ================================
+# IMAGES/FILES
+# ================================
+Pillow==10.2.0
+
+# ================================
+# UTILITIES
+# ================================
+pytz==2024.1
+
+# ================================
+# DEVELOPMENT & TESTING (Opcional)
+# ================================
+# Descomentar si quieres usar estas herramientas
+
+# Testing
+# pytest==7.4.3
+# pytest-django==4.7.0
+# coverage==7.3.2
+
+# Code Quality
+# black==23.12.1
+# flake8==6.1.0
+# pylint==3.0.3
+
+# API Documentation
+# drf-yasg==1.21.7
+
+# Debugging
+# django-debug-toolbar==4.2.0
+# ipython==8.18.1
+
+# ================================
+# PRODUCTION (Opcional)
+# ================================
+# Descomentar para producción
+
+# gunicorn==21.2.0
+# whitenoise==6.6.0
+# django-environ==0.11.2
+```
+
+
+---
+
+## 📄 ./PROYECTO_COMPLETO.md
+
+```python
+
+```
+
+
+---
+
+## 📄 ./middlewares/logging_middleware.py
+
+```python
+"""
+Middleware para logging de requests y responses
+"""
+import logging
+import time
+from django.utils.deprecation import MiddlewareMixin
+
+logger = logging.getLogger(__name__)
+
+
+class RequestLoggingMiddleware(MiddlewareMixin):
+    """Middleware para registrar todas las peticiones HTTP"""
+    
+    def process_request(self, request):
+        """Registra información del request"""
+        request.start_time = time.time()
+        
+        logger.info(
+            f"Request: {request.method} {request.path} "
+            f"| User: {request.user if request.user.is_authenticated else 'Anonymous'} "
+            f"| IP: {self.get_client_ip(request)}"
+        )
+        
+        return None
+    
+    def process_response(self, request, response):
+        """Registra información del response"""
+        
+        if hasattr(request, 'start_time'):
+            duration = time.time() - request.start_time
+            
+            logger.info(
+                f"Response: {request.method} {request.path} "
+                f"| Status: {response.status_code} "
+                f"| Duration: {duration:.2f}s"
+            )
+        
+        return response
+    
+    @staticmethod
+    def get_client_ip(request):
+        """Obtiene la IP del cliente"""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+
+
+class APIErrorLoggingMiddleware(MiddlewareMixin):
+    """Middleware para registrar errores de la API"""
+    
+    def process_exception(self, request, exception):
+        """Registra excepciones no manejadas"""
+        
+        logger.error(
+            f"Exception: {request.method} {request.path} "
+            f"| User: {request.user if request.user.is_authenticated else 'Anonymous'} "
+            f"| Error: {str(exception)}",
+            exc_info=True
+        )
+        
+        return None
+```
+
+
+---
+
+## 📄 ./middlewares/auth_middleware.py
+
+```python
+"""
+Middleware de autenticación y permisos personalizados
+"""
+from django.http import JsonResponse
+from django.utils.deprecation import MiddlewareMixin
+from core.models import TipoUsuario
+
+
+class RoleBasedAccessMiddleware(MiddlewareMixin):
+    """Middleware para control de acceso basado en roles"""
+    
+    # Rutas públicas que no requieren autenticación
+    PUBLIC_ROUTES = [
+        '/admin/',
+        '/api/core/auth/login/',
+        '/api/core/auth/register/',
+    ]
+    
+    # Rutas por tipo de usuario
+    ROLE_ROUTES = {
+        TipoUsuario.ADMINISTRADOR: [
+            '/api/core/',
+            '/api/solicitudes/',
+            '/api/servicios/',
+        ],
+        TipoUsuario.AGENTE: [
+            '/api/solicitudes/',
+            '/api/servicios/',
+        ],
+        TipoUsuario.TALLER: [
+            '/api/servicios/mis-servicios/',
+            '/api/servicios/actualizar-progreso/',
+            '/api/servicios/calendario/',
+        ],
+        TipoUsuario.CLIENTE: [
+            '/api/solicitudes/mis-solicitudes/',
+            '/api/core/vehiculos/',
+        ],
+    }
+    
+    def process_request(self, request):
+        """Procesa cada request verificando permisos"""
+        
+        # Permitir rutas públicas
+        if any(request.path.startswith(route) for route in self.PUBLIC_ROUTES):
+            return None
+        
+        # Verificar autenticación
+        if not request.user.is_authenticated:
+            return JsonResponse(
+                {'error': 'Autenticación requerida'},
+                status=401
+            )
+        
+        # Verificar si es superusuario
+        if request.user.is_superuser:
+            return None
+        
+        # Verificar permisos basados en rol
+        user_role = request.user.id_tipo.cve
+        allowed_routes = self.ROLE_ROUTES.get(user_role, [])
+        
+        # Verificar si la ruta está permitida para el rol
+        if not any(request.path.startswith(route) for route in allowed_routes):
+            return JsonResponse(
+                {
+                    'error': 'No tiene permisos para acceder a este recurso',
+                    'role': user_role
+                },
+                status=403
+            )
+        
+        return None
+
+
+class UserActiveCheckMiddleware(MiddlewareMixin):
+    """Middleware para verificar que el usuario esté activo"""
+    
+    def process_request(self, request):
+        """Verifica si el usuario está activo"""
+        
+        if request.user.is_authenticated:
+            if hasattr(request.user, 'activo') and not request.user.activo:
+                return JsonResponse(
+                    {'error': 'Usuario inactivo. Contacte al administrador.'},
+                    status=403
+                )
+        
+        return None
+```
+
+
+---
+
+## 📄 ./middlewares/error_handler_middleware.py
+
+```python
+"""
+Middleware para manejo centralizado de errores
+"""
+from django.http import JsonResponse
+from django.core.exceptions import ValidationError, PermissionDenied
+from django.db import IntegrityError
+from rest_framework.exceptions import APIException
+from django.utils.deprecation import MiddlewareMixin
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class ErrorHandlerMiddleware(MiddlewareMixin):
+    """Middleware para manejo global de errores"""
+    
+    def process_exception(self, request, exception):
+        """Maneja diferentes tipos de excepciones"""
+        
+        # Errores de validación
+        if isinstance(exception, ValidationError):
+            return JsonResponse(
+                {
+                    'error': 'Error de validación',
+                    'details': exception.message_dict if hasattr(exception, 'message_dict') else str(exception)
+                },
+                status=400
+            )
+        
+        # Errores de integridad de BD
+        if isinstance(exception, IntegrityError):
+            return JsonResponse(
+                {
+                    'error': 'Error de integridad de datos',
+                    'message': 'El registro viola restricciones de la base de datos'
+                },
+                status=400
+            )
+        
+        # Errores de permisos
+        if isinstance(exception, PermissionDenied):
+            return JsonResponse(
+                {
+                    'error': 'Permiso denegado',
+                    'message': str(exception)
+                },
+                status=403
+            )
+        
+        # Errores de DRF
+        if isinstance(exception, APIException):
+            return JsonResponse(
+                {
+                    'error': exception.default_detail,
+                    'details': exception.detail if hasattr(exception, 'detail') else None
+                },
+                status=exception.status_code
+            )
+        
+        # Errores genéricos
+        logger.error(f"Unhandled exception: {str(exception)}", exc_info=True)
+        
+        return JsonResponse(
+            {
+                'error': 'Error interno del servidor',
+                'message': 'Ha ocurrido un error inesperado'
+            },
+            status=500
+        )
 ```
 
 
@@ -318,372 +679,231 @@ class ActualizarProgresoSerializer(serializers.Serializer):
 
 ---
 
-## 📄 ./servicios/views.py
+## 📄 ./servicios/urls.py
 
 ```python
 """
-SERVICIOS VIEWS: Catálogo, Asignaciones y Progreso
+SERVICIOS URLS
 """
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import (
+    CategoriaServicioViewSet, ServicioViewSet,
+    ServicioUsuarioTallerViewSet, ReservacionServicioViewSet,
+    ProgresoServicioViewSet
+)
 
+router = DefaultRouter()
+
+router.register(r'categorias', CategoriaServicioViewSet, basename='categoria-servicio')
+router.register(r'servicios', ServicioViewSet, basename='servicio')
+router.register(r'servicios-taller', ServicioUsuarioTallerViewSet, basename='servicio-taller')
+router.register(r'reservaciones-servicio', ReservacionServicioViewSet, basename='reservacion-servicio')
+router.register(r'progreso', ProgresoServicioViewSet, basename='progreso-servicio')
+
+urlpatterns = [
+    path('', include(router.urls)),
+]
+```
+
+
+---
+
+## 📄 ./servicios/__init__.py
+
+```python
+
+```
+
+
+---
+
+## 📄 ./servicios/admin.py
+
+```python
+"""
+SERVICIOS ADMIN: Registro de modelos en Django Admin
+"""
+from django.contrib import admin
 from .models import (
     CategoriaServicio, Servicio, ServicioUsuarioTaller,
     ReservacionServicio, ReservacionTampBlock, ProgresoServicio
 )
-from .serializers import (
-    CategoriaServicioSerializer, ServicioSerializer, ServicioDetailSerializer,
-    ServicioUsuarioTallerSerializer, ServicioUsuarioTallerDetailSerializer,
-    ReservacionServicioSerializer, ReservacionServicioDetailSerializer,
-    ReservacionServicioCreateSerializer, ActualizarProgresoSerializer,
-    ReservacionTampBlockSerializer, ProgresoServicioSerializer
-)
-from .services.servicio_service import ServicioService
-from .services.asignacion_service import AsignacionService
-from .services.progreso_service import ProgresoService
 
 
-# =====================
-# CATÁLOGO DE SERVICIOS
-# =====================
-
-class CategoriaServicioViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet para categorías de servicios
-    """
-    queryset = CategoriaServicio.objects.all()
-    serializer_class = CategoriaServicioSerializer
-    permission_classes = [IsAuthenticated]
-    
-    @action(detail=False, methods=['get'])
-    def activas(self, request):
-        """Solo categorías activas"""
-        categorias = CategoriaServicio.objects.filter(activo=True)
-        serializer = self.get_serializer(categorias, many=True)
-        return Response(serializer.data)
+@admin.register(CategoriaServicio)
+class CategoriaServicioAdmin(admin.ModelAdmin):
+    list_display = ['nombre', 'activo']
+    list_filter = ['activo']
+    search_fields = ['nombre']
 
 
-class ServicioViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet para servicios
-    """
-    queryset = Servicio.objects.all()
-    serializer_class = ServicioSerializer
-    permission_classes = [IsAuthenticated]
-    
-    def get_serializer_class(self):
-        if self.action == 'retrieve':
-            return ServicioDetailSerializer
-        return ServicioSerializer
-    
-    @action(detail=False, methods=['get'])
-    def activos(self, request):
-        """Solo servicios activos"""
-        servicios = ServicioService.obtener_activos()
-        serializer = self.get_serializer(servicios, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=False, methods=['get'])
-    def por_categoria(self, request):
-        """Filtrar servicios por categoría"""
-        categoria_id = request.query_params.get('categoria_id')
-        if not categoria_id:
-            return Response(
-                {'error': 'Parámetro categoria_id requerido'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        servicios = ServicioService.obtener_por_categoria(int(categoria_id))
-        serializer = self.get_serializer(servicios, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=True, methods=['get'])
-    def talleres_disponibles(self, request, pk=None):
-        """Obtener talleres que ofrecen este servicio"""
-        servicio = self.get_object()
-        talleres = ServicioService.obtener_talleres_por_servicio(servicio.id)
-        serializer = ServicioUsuarioTallerSerializer(talleres, many=True)
-        return Response(serializer.data)
+@admin.register(Servicio)
+class ServicioAdmin(admin.ModelAdmin):
+    list_display = [
+        'nombre', 'id_categoria', 'costo_base',
+        'duracion_estimada_dias', 'activo'
+    ]
+    list_filter = ['id_categoria', 'activo']
+    search_fields = ['nombre', 'id_categoria__nombre']
+    ordering = ['id_categoria__nombre', 'nombre']
 
 
-class ServicioUsuarioTallerViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet para servicios ofrecidos por talleres
-    """
-    queryset = ServicioUsuarioTaller.objects.all()
-    serializer_class = ServicioUsuarioTallerSerializer
-    permission_classes = [IsAuthenticated]
+@admin.register(ServicioUsuarioTaller)
+class ServicioUsuarioTallerAdmin(admin.ModelAdmin):
+    list_display = [
+        'id_usuario_taller', 'id_servicio',
+        'precio', 'duracion_dias', 'activo'
+    ]
+    list_filter = ['id_usuario_taller', 'id_servicio__id_categoria', 'activo']
+    search_fields = [
+        'id_usuario_taller__nombre',
+        'id_servicio__nombre'
+    ]
+    ordering = ['id_usuario_taller__nombre', 'id_servicio__nombre']
     
-    def get_serializer_class(self):
-        if self.action == 'retrieve':
-            return ServicioUsuarioTallerDetailSerializer
-        return ServicioUsuarioTallerSerializer
-    
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        user = self.request.user
-        
-        # Si es taller, solo ver sus servicios
-        if user.id_tipo.cve == 'taller':
-            queryset = queryset.filter(id_usuario_taller=user)
-        
-        return queryset
-    
-    @action(detail=False, methods=['get'])
-    def mis_servicios(self, request):
-        """Obtener servicios del taller actual"""
-        if request.user.id_tipo.cve != 'taller':
-            return Response(
-                {'error': 'Solo talleres pueden acceder a esta función'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        servicios = ServicioUsuarioTaller.objects.filter(
-            id_usuario_taller=request.user,
-            activo=True
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related(
+            'id_usuario_taller',
+            'id_servicio__id_categoria'
         )
-        serializer = self.get_serializer(servicios, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=False, methods=['get'])
-    def por_taller(self, request):
-        """Obtener servicios de un taller específico"""
-        taller_id = request.query_params.get('taller_id')
-        if not taller_id:
-            return Response(
-                {'error': 'Parámetro taller_id requerido'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        servicios = ServicioService.obtener_servicios_taller(int(taller_id))
-        serializer = self.get_serializer(servicios, many=True)
-        return Response(serializer.data)
 
 
-# =====================
-# RESERVACIONES DE SERVICIOS
-# =====================
-
-class ReservacionServicioViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet para reservaciones de servicios
-    """
-    queryset = ReservacionServicio.objects.all()
-    serializer_class = ReservacionServicioSerializer
-    permission_classes = [IsAuthenticated]
-    
-    def get_serializer_class(self):
-        if self.action == 'create':
-            return ReservacionServicioCreateSerializer
-        elif self.action == 'retrieve':
-            return ReservacionServicioDetailSerializer
-        return ReservacionServicioSerializer
-    
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        user = self.request.user
-        
-        # Si es taller, solo ver servicios asignados a él
-        if user.id_tipo.cve == 'taller':
-            queryset = queryset.filter(
-                id_servicio_usuario_taller__id_usuario_taller=user
-            )
-        # Si es cliente, solo ver servicios de sus vehículos
-        elif user.id_tipo.cve == 'cliente':
-            queryset = queryset.filter(
-                id_reservacion_taller_principal__id_solicitud__id_usuario=user
-            )
-        
-        return queryset
-    
-    @action(detail=False, methods=['get'])
-    def mis_servicios(self, request):
-        """Obtener servicios del usuario actual"""
-        if request.user.id_tipo.cve == 'taller':
-            servicios = AsignacionService.obtener_por_taller(request.user.id)
-        elif request.user.id_tipo.cve == 'cliente':
-            # Obtener servicios de las reservaciones del cliente
-            servicios = ReservacionServicio.objects.filter(
-                id_reservacion_taller_principal__id_solicitud__id_usuario=request.user
-            )
-        else:
-            servicios = self.get_queryset()
-        
-        serializer = self.get_serializer(servicios, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=False, methods=['post'])
-    def asignar_servicio(self, request):
-        """Asignar un servicio a un taller"""
-        # Verificar permisos
-        if request.user.id_tipo.cve not in ['administrador', 'agente']:
-            return Response(
-                {'error': 'No tiene permisos para asignar servicios'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        serializer = ReservacionServicioCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        try:
-            reservacion = AsignacionService.asignar_servicio(
-                serializer.validated_data['id_reservacion_taller_principal'].id,
-                serializer.validated_data['id_servicio_usuario_taller'].id,
-                serializer.validated_data['id_estado'].id,
-                serializer.validated_data.get('fechas', []),
-                serializer.validated_data.get('observaciones', '')
-            )
-            
-            result_serializer = ReservacionServicioDetailSerializer(reservacion)
-            return Response(result_serializer.data, status=status.HTTP_201_CREATED)
-        
-        except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-    
-    @action(detail=True, methods=['post'])
-    def iniciar_servicio(self, request, pk=None):
-        """Iniciar un servicio"""
-        servicio = self.get_object()
-        
-        # Verificar permisos
-        if request.user.id_tipo.cve == 'taller':
-            if servicio.id_servicio_usuario_taller.id_usuario_taller != request.user:
-                return Response(
-                    {'error': 'No tiene permisos para este servicio'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        
-        try:
-            servicio_actualizado = AsignacionService.iniciar_servicio(servicio.id)
-            serializer = self.get_serializer(servicio_actualizado)
-            return Response(serializer.data)
-        
-        except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-    
-    @action(detail=True, methods=['post'])
-    def actualizar_progreso(self, request, pk=None):
-        """Actualizar progreso del servicio"""
-        servicio = self.get_object()
-        
-        # Verificar permisos
-        if request.user.id_tipo.cve == 'taller':
-            if servicio.id_servicio_usuario_taller.id_usuario_taller != request.user:
-                return Response(
-                    {'error': 'No tiene permisos para este servicio'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        
-        serializer = ActualizarProgresoSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
-        try:
-            servicio_actualizado = ProgresoService.actualizar_progreso(
-                servicio.id,
-                serializer.validated_data['porcentaje'],
-                request.user.id,
-                serializer.validated_data.get('dias_estimados'),
-                serializer.validated_data.get('comentario', ''),
-                serializer.validated_data.get('evidencia_url', '')
-            )
-            
-            result_serializer = ReservacionServicioDetailSerializer(servicio_actualizado)
-            return Response(result_serializer.data)
-        
-        except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-    
-    @action(detail=True, methods=['post'])
-    def finalizar_servicio(self, request, pk=None):
-        """Finalizar un servicio"""
-        servicio = self.get_object()
-        
-        # Verificar permisos
-        if request.user.id_tipo.cve == 'taller':
-            if servicio.id_servicio_usuario_taller.id_usuario_taller != request.user:
-                return Response(
-                    {'error': 'No tiene permisos para este servicio'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        
-        try:
-            servicio_actualizado = ProgresoService.finalizar_servicio(servicio.id)
-            serializer = self.get_serializer(servicio_actualizado)
-            return Response(serializer.data)
-        
-        except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-    
-    @action(detail=True, methods=['get'])
-    def historial(self, request, pk=None):
-        """Obtener historial de progreso"""
-        servicio = self.get_object()
-        historial = ProgresoService.obtener_historial(servicio.id)
-        serializer = ProgresoServicioSerializer(historial, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=False, methods=['get'])
-    def por_estado(self, request):
-        """Filtrar servicios por estado"""
-        estado = request.query_params.get('estado')
-        if not estado:
-            return Response(
-                {'error': 'Parámetro estado requerido'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        servicios = AsignacionService.obtener_por_estado(estado)
-        serializer = self.get_serializer(servicios, many=True)
-        return Response(serializer.data)
+class ProgresoServicioInline(admin.TabularInline):
+    model = ProgresoServicio
+    extra = 0
+    can_delete = False
+    readonly_fields = ['fecha']
+    ordering = ['-fecha']
 
 
-class ProgresoServicioViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    ViewSet para ver historial de progreso
-    """
-    queryset = ProgresoServicio.objects.all()
-    serializer_class = ProgresoServicioSerializer
-    permission_classes = [IsAuthenticated]
+@admin.register(ReservacionServicio)
+class ReservacionServicioAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'get_vehiculo', 'get_servicio', 'get_taller',
+        'progreso', 'id_estado', 'fecha_asignacion'
+    ]
+    list_filter = [
+        'id_estado',
+        'id_servicio_usuario_taller__id_usuario_taller',
+        'fecha_asignacion'
+    ]
+    search_fields = [
+        'id_reservacion_taller_principal__id_solicitud__id_vehiculo__placa',
+        'id_servicio_usuario_taller__id_servicio__nombre',
+        'id_servicio_usuario_taller__id_usuario_taller__nombre'
+    ]
+    ordering = ['-fecha_asignacion']
+    inlines = [ProgresoServicioInline]
     
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        user = self.request.user
-        
-        # Si es taller, solo ver progreso de sus servicios
-        if user.id_tipo.cve == 'taller':
-            queryset = queryset.filter(
-                id_reservacion_servicio__id_servicio_usuario_taller__id_usuario_taller=user
+    fieldsets = (
+        ('Información Principal', {
+            'fields': (
+                'id_reservacion_taller_principal',
+                'id_servicio_usuario_taller',
+                'id_estado'
             )
-        
-        return queryset
+        }),
+        ('Progreso', {
+            'fields': (
+                'progreso', 'estado_dias',
+                'fecha_inicio_real', 'fecha_fin_estimada', 'fecha_fin_real'
+            )
+        }),
+        ('Observaciones', {
+            'fields': ('observaciones',)
+        }),
+    )
     
-    @action(detail=False, methods=['get'])
-    def por_servicio(self, request):
-        """Obtener progreso de un servicio específico"""
-        servicio_id = request.query_params.get('servicio_id')
-        if not servicio_id:
-            return Response(
-                {'error': 'Parámetro servicio_id requerido'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        progreso = ProgresoService.obtener_historial(int(servicio_id))
-        serializer = self.get_serializer(progreso, many=True)
-        return Response(serializer.data)
+    readonly_fields = ['fecha_asignacion']
+    
+    def get_vehiculo(self, obj):
+        return obj.id_reservacion_taller_principal.id_solicitud.id_vehiculo.placa
+    get_vehiculo.short_description = 'Vehículo'
+    
+    def get_servicio(self, obj):
+        return obj.id_servicio_usuario_taller.id_servicio.nombre
+    get_servicio.short_description = 'Servicio'
+    
+    def get_taller(self, obj):
+        return obj.id_servicio_usuario_taller.id_usuario_taller.nombre
+    get_taller.short_description = 'Taller'
+    
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related(
+            'id_reservacion_taller_principal__id_solicitud__id_vehiculo',
+            'id_servicio_usuario_taller__id_servicio',
+            'id_servicio_usuario_taller__id_usuario_taller',
+            'id_estado'
+        )
+
+
+@admin.register(ReservacionTampBlock)
+class ReservacionTampBlockAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'get_servicio', 'get_taller',
+        'fecha_asignada', 'creado_at'
+    ]
+    list_filter = ['fecha_asignada', 'creado_at']
+    search_fields = [
+        'id_reservacion_servicio__id_servicio_usuario_taller__id_servicio__nombre'
+    ]
+    ordering = ['fecha_asignada']
+    
+    def get_servicio(self, obj):
+        return obj.id_reservacion_servicio.id_servicio_usuario_taller.id_servicio.nombre
+    get_servicio.short_description = 'Servicio'
+    
+    def get_taller(self, obj):
+        return obj.id_reservacion_servicio.id_servicio_usuario_taller.id_usuario_taller.nombre
+    get_taller.short_description = 'Taller'
+    
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related(
+            'id_reservacion_servicio__id_servicio_usuario_taller__id_servicio',
+            'id_reservacion_servicio__id_servicio_usuario_taller__id_usuario_taller'
+        )
+
+
+@admin.register(ProgresoServicio)
+class ProgresoServicioAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'get_servicio', 'fecha',
+        'porcentaje_anterior', 'porcentaje_nuevo',
+        'dias_estimados', 'actualizado_por'
+    ]
+    list_filter = ['fecha', 'actualizado_por']
+    search_fields = [
+        'id_reservacion_servicio__id_servicio_usuario_taller__id_servicio__nombre'
+    ]
+    ordering = ['-fecha']
+    readonly_fields = ['fecha']
+    
+    def get_servicio(self, obj):
+        return obj.id_reservacion_servicio.id_servicio_usuario_taller.id_servicio.nombre
+    get_servicio.short_description = 'Servicio'
+    
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related(
+            'id_reservacion_servicio__id_servicio_usuario_taller__id_servicio',
+            'actualizado_por'
+        )
+```
+
+
+---
+
+## 📄 ./servicios/tests.py
+
+```python
+from django.test import TestCase
+
+# Create your tests here.
+
 ```
 
 
@@ -917,206 +1137,6 @@ class ProgresoServicio(models.Model):
 
 ---
 
-## 📄 ./servicios/admin.py
-
-```python
-"""
-SERVICIOS ADMIN: Registro de modelos en Django Admin
-"""
-from django.contrib import admin
-from .models import (
-    CategoriaServicio, Servicio, ServicioUsuarioTaller,
-    ReservacionServicio, ReservacionTampBlock, ProgresoServicio
-)
-
-
-@admin.register(CategoriaServicio)
-class CategoriaServicioAdmin(admin.ModelAdmin):
-    list_display = ['nombre', 'activo']
-    list_filter = ['activo']
-    search_fields = ['nombre']
-
-
-@admin.register(Servicio)
-class ServicioAdmin(admin.ModelAdmin):
-    list_display = [
-        'nombre', 'id_categoria', 'costo_base',
-        'duracion_estimada_dias', 'activo'
-    ]
-    list_filter = ['id_categoria', 'activo']
-    search_fields = ['nombre', 'id_categoria__nombre']
-    ordering = ['id_categoria__nombre', 'nombre']
-
-
-@admin.register(ServicioUsuarioTaller)
-class ServicioUsuarioTallerAdmin(admin.ModelAdmin):
-    list_display = [
-        'id_usuario_taller', 'id_servicio',
-        'precio', 'duracion_dias', 'activo'
-    ]
-    list_filter = ['id_usuario_taller', 'id_servicio__id_categoria', 'activo']
-    search_fields = [
-        'id_usuario_taller__nombre',
-        'id_servicio__nombre'
-    ]
-    ordering = ['id_usuario_taller__nombre', 'id_servicio__nombre']
-    
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.select_related(
-            'id_usuario_taller',
-            'id_servicio__id_categoria'
-        )
-
-
-class ProgresoServicioInline(admin.TabularInline):
-    model = ProgresoServicio
-    extra = 0
-    can_delete = False
-    readonly_fields = ['fecha']
-    ordering = ['-fecha']
-
-
-@admin.register(ReservacionServicio)
-class ReservacionServicioAdmin(admin.ModelAdmin):
-    list_display = [
-        'id', 'get_vehiculo', 'get_servicio', 'get_taller',
-        'progreso', 'id_estado', 'fecha_asignacion'
-    ]
-    list_filter = [
-        'id_estado',
-        'id_servicio_usuario_taller__id_usuario_taller',
-        'fecha_asignacion'
-    ]
-    search_fields = [
-        'id_reservacion_taller_principal__id_solicitud__id_vehiculo__placa',
-        'id_servicio_usuario_taller__id_servicio__nombre',
-        'id_servicio_usuario_taller__id_usuario_taller__nombre'
-    ]
-    ordering = ['-fecha_asignacion']
-    inlines = [ProgresoServicioInline]
-    
-    fieldsets = (
-        ('Información Principal', {
-            'fields': (
-                'id_reservacion_taller_principal',
-                'id_servicio_usuario_taller',
-                'id_estado'
-            )
-        }),
-        ('Progreso', {
-            'fields': (
-                'progreso', 'estado_dias',
-                'fecha_inicio_real', 'fecha_fin_estimada', 'fecha_fin_real'
-            )
-        }),
-        ('Observaciones', {
-            'fields': ('observaciones',)
-        }),
-    )
-    
-    readonly_fields = ['fecha_asignacion']
-    
-    def get_vehiculo(self, obj):
-        return obj.id_reservacion_taller_principal.id_solicitud.id_vehiculo.placa
-    get_vehiculo.short_description = 'Vehículo'
-    
-    def get_servicio(self, obj):
-        return obj.id_servicio_usuario_taller.id_servicio.nombre
-    get_servicio.short_description = 'Servicio'
-    
-    def get_taller(self, obj):
-        return obj.id_servicio_usuario_taller.id_usuario_taller.nombre
-    get_taller.short_description = 'Taller'
-    
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.select_related(
-            'id_reservacion_taller_principal__id_solicitud__id_vehiculo',
-            'id_servicio_usuario_taller__id_servicio',
-            'id_servicio_usuario_taller__id_usuario_taller',
-            'id_estado'
-        )
-
-
-@admin.register(ReservacionTampBlock)
-class ReservacionTampBlockAdmin(admin.ModelAdmin):
-    list_display = [
-        'id', 'get_servicio', 'get_taller',
-        'fecha_asignada', 'creado_at'
-    ]
-    list_filter = ['fecha_asignada', 'creado_at']
-    search_fields = [
-        'id_reservacion_servicio__id_servicio_usuario_taller__id_servicio__nombre'
-    ]
-    ordering = ['fecha_asignada']
-    
-    def get_servicio(self, obj):
-        return obj.id_reservacion_servicio.id_servicio_usuario_taller.id_servicio.nombre
-    get_servicio.short_description = 'Servicio'
-    
-    def get_taller(self, obj):
-        return obj.id_reservacion_servicio.id_servicio_usuario_taller.id_usuario_taller.nombre
-    get_taller.short_description = 'Taller'
-    
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.select_related(
-            'id_reservacion_servicio__id_servicio_usuario_taller__id_servicio',
-            'id_reservacion_servicio__id_servicio_usuario_taller__id_usuario_taller'
-        )
-
-
-@admin.register(ProgresoServicio)
-class ProgresoServicioAdmin(admin.ModelAdmin):
-    list_display = [
-        'id', 'get_servicio', 'fecha',
-        'porcentaje_anterior', 'porcentaje_nuevo',
-        'dias_estimados', 'actualizado_por'
-    ]
-    list_filter = ['fecha', 'actualizado_por']
-    search_fields = [
-        'id_reservacion_servicio__id_servicio_usuario_taller__id_servicio__nombre'
-    ]
-    ordering = ['-fecha']
-    readonly_fields = ['fecha']
-    
-    def get_servicio(self, obj):
-        return obj.id_reservacion_servicio.id_servicio_usuario_taller.id_servicio.nombre
-    get_servicio.short_description = 'Servicio'
-    
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.select_related(
-            'id_reservacion_servicio__id_servicio_usuario_taller__id_servicio',
-            'actualizado_por'
-        )
-```
-
-
----
-
-## 📄 ./servicios/__init__.py
-
-```python
-
-```
-
-
----
-
-## 📄 ./servicios/tests.py
-
-```python
-from django.test import TestCase
-
-# Create your tests here.
-
-```
-
-
----
-
 ## 📄 ./servicios/apps.py
 
 ```python
@@ -1132,31 +1152,373 @@ class ServiciosConfig(AppConfig):
 
 ---
 
-## 📄 ./servicios/urls.py
+## 📄 ./servicios/views.py
 
 ```python
 """
-SERVICIOS URLS
+SERVICIOS VIEWS: Catálogo, Asignaciones y Progreso
 """
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from .views import (
-    CategoriaServicioViewSet, ServicioViewSet,
-    ServicioUsuarioTallerViewSet, ReservacionServicioViewSet,
-    ProgresoServicioViewSet
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from .models import (
+    CategoriaServicio, Servicio, ServicioUsuarioTaller,
+    ReservacionServicio, ReservacionTampBlock, ProgresoServicio
 )
+from .serializers import (
+    CategoriaServicioSerializer, ServicioSerializer, ServicioDetailSerializer,
+    ServicioUsuarioTallerSerializer, ServicioUsuarioTallerDetailSerializer,
+    ReservacionServicioSerializer, ReservacionServicioDetailSerializer,
+    ReservacionServicioCreateSerializer, ActualizarProgresoSerializer,
+    ReservacionTampBlockSerializer, ProgresoServicioSerializer
+)
+# ✅ CORREGIDO: Importar las clases correctas
+from .services.servicio_service import ServicioService, ServicioTallerService
+from .services.asignacion_service import AsignacionServicioService
+from .services.progreso_service import ProgresoServicioService
 
-router = DefaultRouter()
 
-router.register(r'categorias', CategoriaServicioViewSet, basename='categoria-servicio')
-router.register(r'servicios', ServicioViewSet, basename='servicio')
-router.register(r'servicios-taller', ServicioUsuarioTallerViewSet, basename='servicio-taller')
-router.register(r'reservaciones-servicio', ReservacionServicioViewSet, basename='reservacion-servicio')
-router.register(r'progreso', ProgresoServicioViewSet, basename='progreso-servicio')
+# =====================
+# CATÁLOGO DE SERVICIOS
+# =====================
 
-urlpatterns = [
-    path('', include(router.urls)),
-]
+class CategoriaServicioViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para categorías de servicios
+    """
+    queryset = CategoriaServicio.objects.all()
+    serializer_class = CategoriaServicioSerializer
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['get'])
+    def activas(self, request):
+        """Solo categorías activas"""
+        categorias = CategoriaServicio.objects.filter(activo=True)
+        serializer = self.get_serializer(categorias, many=True)
+        return Response(serializer.data)
+
+
+class ServicioViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para servicios
+    """
+    queryset = Servicio.objects.all()
+    serializer_class = ServicioSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return ServicioDetailSerializer
+        return ServicioSerializer
+    
+    @action(detail=False, methods=['get'])
+    def activos(self, request):
+        """Solo servicios activos"""
+        servicios = ServicioService().get_all_servicios(activo=True)
+        serializer = self.get_serializer(servicios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def por_categoria(self, request):
+        """Filtrar servicios por categoría"""
+        categoria_id = request.query_params.get('categoria_id')
+        if not categoria_id:
+            return Response(
+                {'error': 'Parámetro categoria_id requerido'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        servicios = ServicioService().get_servicios_by_categoria(int(categoria_id))
+        serializer = self.get_serializer(servicios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def talleres_disponibles(self, request, pk=None):
+        """Obtener talleres que ofrecen este servicio"""
+        talleres = ServicioTallerService().get_talleres_por_servicio(int(pk))
+        serializer = ServicioUsuarioTallerSerializer(talleres, many=True)
+        return Response(serializer.data)
+
+
+class ServicioUsuarioTallerViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para servicios ofrecidos por talleres
+    """
+    queryset = ServicioUsuarioTaller.objects.all()
+    serializer_class = ServicioUsuarioTallerSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return ServicioUsuarioTallerDetailSerializer
+        return ServicioUsuarioTallerSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        
+        # Si es taller, solo ver sus servicios
+        if user.id_tipo.cve == 'taller':
+            queryset = queryset.filter(id_usuario_taller=user)
+        
+        return queryset
+    
+    @action(detail=False, methods=['get'])
+    def mis_servicios(self, request):
+        """Obtener servicios del taller actual"""
+        if request.user.id_tipo.cve != 'taller':
+            return Response(
+                {'error': 'Solo talleres pueden acceder a esta función'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        servicios = ServicioTallerService().get_servicios_by_taller(request.user.id)
+        serializer = self.get_serializer(servicios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def por_taller(self, request):
+        """Obtener servicios de un taller específico"""
+        taller_id = request.query_params.get('taller_id')
+        if not taller_id:
+            return Response(
+                {'error': 'Parámetro taller_id requerido'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        servicios = ServicioTallerService().get_servicios_by_taller(int(taller_id))
+        serializer = self.get_serializer(servicios, many=True)
+        return Response(serializer.data)
+
+
+# =====================
+# RESERVACIONES DE SERVICIOS
+# =====================
+
+class ReservacionServicioViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para reservaciones de servicios
+    """
+    queryset = ReservacionServicio.objects.all()
+    serializer_class = ReservacionServicioSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return ReservacionServicioCreateSerializer
+        elif self.action == 'retrieve':
+            return ReservacionServicioDetailSerializer
+        return ReservacionServicioSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        
+        # Si es taller, solo ver servicios asignados a él
+        if user.id_tipo.cve == 'taller':
+            queryset = queryset.filter(
+                id_servicio_usuario_taller__id_usuario_taller=user
+            )
+        # Si es cliente, solo ver servicios de sus vehículos
+        elif user.id_tipo.cve == 'cliente':
+            queryset = queryset.filter(
+                id_reservacion_taller_principal__id_solicitud__id_usuario=user
+            )
+        
+        return queryset
+    
+    @action(detail=False, methods=['get'])
+    def mis_servicios(self, request):
+        """Obtener servicios del usuario actual"""
+        service = AsignacionServicioService()
+        
+        if request.user.id_tipo.cve == 'taller':
+            servicios = service.get_servicios_by_taller(request.user.id)
+        elif request.user.id_tipo.cve == 'cliente':
+            servicios = ReservacionServicio.objects.filter(
+                id_reservacion_taller_principal__id_solicitud__id_usuario=request.user
+            )
+        else:
+            servicios = self.get_queryset()
+        
+        serializer = self.get_serializer(servicios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'])
+    def asignar_servicio(self, request):
+        """Asignar un servicio a un taller"""
+        if request.user.id_tipo.cve not in ['administrador', 'agente']:
+            return Response(
+                {'error': 'No tiene permisos para asignar servicios'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = ReservacionServicioCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        try:
+            service = AsignacionServicioService()
+            reservacion = service.asignar_servicio(serializer.validated_data)
+            
+            result_serializer = ReservacionServicioDetailSerializer(reservacion)
+            return Response(result_serializer.data, status=status.HTTP_201_CREATED)
+        
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    @action(detail=True, methods=['post'])
+    def iniciar_servicio(self, request, pk=None):
+        """Iniciar un servicio"""
+        servicio = self.get_object()
+        
+        # Verificar permisos
+        if request.user.id_tipo.cve == 'taller':
+            if servicio.id_servicio_usuario_taller.id_usuario_taller != request.user:
+                return Response(
+                    {'error': 'No tiene permisos para este servicio'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
+        try:
+            service = AsignacionServicioService()
+            servicio_actualizado = service.iniciar_servicio(servicio.id)
+            serializer = self.get_serializer(servicio_actualizado)
+            return Response(serializer.data)
+        
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    @action(detail=True, methods=['post'])
+    def actualizar_progreso(self, request, pk=None):
+        """Actualizar progreso del servicio"""
+        servicio = self.get_object()
+        
+        # Verificar permisos
+        if request.user.id_tipo.cve == 'taller':
+            if servicio.id_servicio_usuario_taller.id_usuario_taller != request.user:
+                return Response(
+                    {'error': 'No tiene permisos para este servicio'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
+        serializer = ActualizarProgresoSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        try:
+            data = {
+                'id_reservacion_servicio': servicio.id,
+                'porcentaje_nuevo': serializer.validated_data['porcentaje'],
+                'dias_estimados': serializer.validated_data.get('dias_estimados'),
+                'comentario': serializer.validated_data.get('comentario', ''),
+                'evidencia_url': serializer.validated_data.get('evidencia_url', ''),
+                'actualizado_por': request.user.id
+            }
+            
+            service = ProgresoServicioService()
+            service.actualizar_progreso(data)
+            
+            # Obtener servicio actualizado
+            servicio.refresh_from_db()
+            result_serializer = ReservacionServicioDetailSerializer(servicio)
+            return Response(result_serializer.data)
+        
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    @action(detail=True, methods=['post'])
+    def finalizar_servicio(self, request, pk=None):
+        """Finalizar un servicio"""
+        servicio = self.get_object()
+        
+        # Verificar permisos
+        if request.user.id_tipo.cve == 'taller':
+            if servicio.id_servicio_usuario_taller.id_usuario_taller != request.user:
+                return Response(
+                    {'error': 'No tiene permisos para este servicio'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
+        try:
+            service = AsignacionServicioService()
+            servicio_actualizado = service.completar_servicio(servicio.id)
+            serializer = self.get_serializer(servicio_actualizado)
+            return Response(serializer.data)
+        
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    @action(detail=True, methods=['get'])
+    def historial(self, request, pk=None):
+        """Obtener historial de progreso"""
+        servicio = self.get_object()
+        service = ProgresoServicioService()
+        historial = service.get_historial_by_servicio(servicio.id)
+        serializer = ProgresoServicioSerializer(historial, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def por_estado(self, request):
+        """Filtrar servicios por estado"""
+        estado = request.query_params.get('estado')
+        if not estado:
+            return Response(
+                {'error': 'Parámetro estado requerido'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        servicios = ReservacionServicio.objects.filter(id_estado__clave=estado)
+        serializer = self.get_serializer(servicios, many=True)
+        return Response(serializer.data)
+
+
+class ProgresoServicioViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet para ver historial de progreso
+    """
+    queryset = ProgresoServicio.objects.all()
+    serializer_class = ProgresoServicioSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        
+        # Si es taller, solo ver progreso de sus servicios
+        if user.id_tipo.cve == 'taller':
+            queryset = queryset.filter(
+                id_reservacion_servicio__id_servicio_usuario_taller__id_usuario_taller=user
+            )
+        
+        return queryset
+    
+    @action(detail=False, methods=['get'])
+    def por_servicio(self, request):
+        """Obtener progreso de un servicio específico"""
+        servicio_id = request.query_params.get('servicio_id')
+        if not servicio_id:
+            return Response(
+                {'error': 'Parámetro servicio_id requerido'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        service = ProgresoServicioService()
+        progreso = service.get_historial_by_servicio(int(servicio_id))
+        serializer = self.get_serializer(progreso, many=True)
+        return Response(serializer.data)
 ```
 
 
@@ -1520,6 +1882,144 @@ class ProgresoServicioRepository:
 
 ---
 
+## 📄 ./servicios/services/progreso_service.py
+
+```python
+"""
+Service para lógica de negocio de Progreso de Servicios
+"""
+from typing import List, Dict
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from servicios.models import ProgresoServicio
+from servicios.repositories.progreso_repository import ProgresoServicioRepository
+from servicios.repositories.servicio_repository import ReservacionServicioRepository
+from solicitudes.repositories.reservacion_repository import ReservacionRepository
+
+
+class ProgresoServicioService:
+    """Maneja la lógica de negocio para progreso de servicios"""
+    
+    def __init__(self):
+        self.repository = ProgresoServicioRepository()
+        self.reservacion_servicio_repository = ReservacionServicioRepository()
+        self.reservacion_principal_repository = ReservacionRepository()
+    
+    def get_historial_by_servicio(self, reservacion_servicio_id: int) -> List[ProgresoServicio]:
+        """Obtiene el historial de progreso de un servicio"""
+        return self.repository.get_by_reservacion_servicio(reservacion_servicio_id)
+    
+    def get_ultimo_progreso(self, reservacion_servicio_id: int) -> ProgresoServicio:
+        """Obtiene el último progreso de un servicio"""
+        return self.repository.get_ultimo_progreso(reservacion_servicio_id)
+    
+    def get_historial_completo(self, reservacion_principal_id: int) -> List[ProgresoServicio]:
+        """Obtiene todo el historial de una reservación principal"""
+        return self.repository.get_historial_completo(reservacion_principal_id)
+    
+    @transaction.atomic
+    def actualizar_progreso(self, data: Dict) -> ProgresoServicio:
+        """
+        Actualiza el progreso de un servicio
+        data: {
+            'id_reservacion_servicio': int,
+            'porcentaje_nuevo': int,
+            'dias_estimados': int (opcional),
+            'comentario': str (opcional),
+            'evidencia_url': str (opcional),
+            'actualizado_por': int
+        }
+        """
+        reservacion_servicio_id = data.get('id_reservacion_servicio')
+        porcentaje_nuevo = data.get('porcentaje_nuevo')
+        
+        # Validar porcentaje
+        if porcentaje_nuevo < 0 or porcentaje_nuevo > 100:
+            raise ValidationError("El porcentaje debe estar entre 0 y 100")
+        
+        # Obtener reservación de servicio
+        reservacion_servicio = self.reservacion_servicio_repository.get_by_id(
+            reservacion_servicio_id
+        )
+        
+        if not reservacion_servicio:
+            raise ValidationError("Reservación de servicio no encontrada")
+        
+        # Obtener porcentaje anterior
+        porcentaje_anterior = reservacion_servicio.progreso
+        
+        # Crear registro de progreso
+        progreso = self.repository.create({
+            'id_reservacion_servicio_id': reservacion_servicio_id,
+            'porcentaje_anterior': porcentaje_anterior,
+            'porcentaje_nuevo': porcentaje_nuevo,
+            'dias_estimados': data.get('dias_estimados'),
+            'comentario': data.get('comentario'),
+            'evidencia_url': data.get('evidencia_url'),
+            'actualizado_por_id': data.get('actualizado_por')
+        })
+        
+        # Actualizar progreso en reservación de servicio
+        self.reservacion_servicio_repository.actualizar_progreso(
+            reservacion_servicio_id,
+            porcentaje_nuevo
+        )
+        
+        # Actualizar días estimados si viene
+        if data.get('dias_estimados'):
+            self.reservacion_servicio_repository.update(reservacion_servicio, {
+                'estado_dias': data['dias_estimados']
+            })
+        
+        # Actualizar avance global de la reservación principal
+        self.reservacion_principal_repository.actualizar_avance_global(
+            reservacion_servicio.id_reservacion_taller_principal_id
+        )
+        
+        return progreso
+    
+    def get_progreso_por_taller(self, taller_id: int) -> List[ProgresoServicio]:
+        """Obtiene progreso actualizado por un taller"""
+        return self.repository.get_by_taller(taller_id)
+    
+    def get_estadisticas_progreso(self, reservacion_principal_id: int) -> Dict:
+        """Obtiene estadísticas de progreso de una reservación"""
+        from django.db.models import Avg, Count
+        
+        servicios = self.reservacion_servicio_repository.get_by_reservacion_principal(
+            reservacion_principal_id
+        )
+        
+        total_servicios = servicios.count()
+        servicios_completados = servicios.filter(progreso=100).count()
+        servicios_en_proceso = servicios.filter(progreso__gt=0, progreso__lt=100).count()
+        servicios_pendientes = servicios.filter(progreso=0).count()
+        
+        promedio_general = servicios.aggregate(
+            promedio=Avg('progreso')
+        )['promedio'] or 0
+        
+        return {
+            'total_servicios': total_servicios,
+            'completados': servicios_completados,
+            'en_proceso': servicios_en_proceso,
+            'pendientes': servicios_pendientes,
+            'promedio_general': round(promedio_general, 2)
+        }
+```
+
+
+---
+
+## 📄 ./servicios/services/__init__.py
+
+```python
+
+```
+
+
+---
+
 ## 📄 ./servicios/services/asignacion_service.py
 
 ```python
@@ -1704,144 +2204,6 @@ class AsignacionServicioService:
             'progreso': 100,
             'fecha_fin_real': timezone.now()
         })
-```
-
-
----
-
-## 📄 ./servicios/services/progreso_service.py
-
-```python
-"""
-Service para lógica de negocio de Progreso de Servicios
-"""
-from typing import List, Dict
-from django.core.exceptions import ValidationError
-from django.db import transaction
-from servicios.models import ProgresoServicio
-from servicios.repositories.progreso_repository import ProgresoServicioRepository
-from servicios.repositories.servicio_repository import ReservacionServicioRepository
-from solicitudes.repositories.reservacion_repository import ReservacionRepository
-
-
-class ProgresoServicioService:
-    """Maneja la lógica de negocio para progreso de servicios"""
-    
-    def __init__(self):
-        self.repository = ProgresoServicioRepository()
-        self.reservacion_servicio_repository = ReservacionServicioRepository()
-        self.reservacion_principal_repository = ReservacionRepository()
-    
-    def get_historial_by_servicio(self, reservacion_servicio_id: int) -> List[ProgresoServicio]:
-        """Obtiene el historial de progreso de un servicio"""
-        return self.repository.get_by_reservacion_servicio(reservacion_servicio_id)
-    
-    def get_ultimo_progreso(self, reservacion_servicio_id: int) -> ProgresoServicio:
-        """Obtiene el último progreso de un servicio"""
-        return self.repository.get_ultimo_progreso(reservacion_servicio_id)
-    
-    def get_historial_completo(self, reservacion_principal_id: int) -> List[ProgresoServicio]:
-        """Obtiene todo el historial de una reservación principal"""
-        return self.repository.get_historial_completo(reservacion_principal_id)
-    
-    @transaction.atomic
-    def actualizar_progreso(self, data: Dict) -> ProgresoServicio:
-        """
-        Actualiza el progreso de un servicio
-        data: {
-            'id_reservacion_servicio': int,
-            'porcentaje_nuevo': int,
-            'dias_estimados': int (opcional),
-            'comentario': str (opcional),
-            'evidencia_url': str (opcional),
-            'actualizado_por': int
-        }
-        """
-        reservacion_servicio_id = data.get('id_reservacion_servicio')
-        porcentaje_nuevo = data.get('porcentaje_nuevo')
-        
-        # Validar porcentaje
-        if porcentaje_nuevo < 0 or porcentaje_nuevo > 100:
-            raise ValidationError("El porcentaje debe estar entre 0 y 100")
-        
-        # Obtener reservación de servicio
-        reservacion_servicio = self.reservacion_servicio_repository.get_by_id(
-            reservacion_servicio_id
-        )
-        
-        if not reservacion_servicio:
-            raise ValidationError("Reservación de servicio no encontrada")
-        
-        # Obtener porcentaje anterior
-        porcentaje_anterior = reservacion_servicio.progreso
-        
-        # Crear registro de progreso
-        progreso = self.repository.create({
-            'id_reservacion_servicio_id': reservacion_servicio_id,
-            'porcentaje_anterior': porcentaje_anterior,
-            'porcentaje_nuevo': porcentaje_nuevo,
-            'dias_estimados': data.get('dias_estimados'),
-            'comentario': data.get('comentario'),
-            'evidencia_url': data.get('evidencia_url'),
-            'actualizado_por_id': data.get('actualizado_por')
-        })
-        
-        # Actualizar progreso en reservación de servicio
-        self.reservacion_servicio_repository.actualizar_progreso(
-            reservacion_servicio_id,
-            porcentaje_nuevo
-        )
-        
-        # Actualizar días estimados si viene
-        if data.get('dias_estimados'):
-            self.reservacion_servicio_repository.update(reservacion_servicio, {
-                'estado_dias': data['dias_estimados']
-            })
-        
-        # Actualizar avance global de la reservación principal
-        self.reservacion_principal_repository.actualizar_avance_global(
-            reservacion_servicio.id_reservacion_taller_principal_id
-        )
-        
-        return progreso
-    
-    def get_progreso_por_taller(self, taller_id: int) -> List[ProgresoServicio]:
-        """Obtiene progreso actualizado por un taller"""
-        return self.repository.get_by_taller(taller_id)
-    
-    def get_estadisticas_progreso(self, reservacion_principal_id: int) -> Dict:
-        """Obtiene estadísticas de progreso de una reservación"""
-        from django.db.models import Avg, Count
-        
-        servicios = self.reservacion_servicio_repository.get_by_reservacion_principal(
-            reservacion_principal_id
-        )
-        
-        total_servicios = servicios.count()
-        servicios_completados = servicios.filter(progreso=100).count()
-        servicios_en_proceso = servicios.filter(progreso__gt=0, progreso__lt=100).count()
-        servicios_pendientes = servicios.filter(progreso=0).count()
-        
-        promedio_general = servicios.aggregate(
-            promedio=Avg('progreso')
-        )['promedio'] or 0
-        
-        return {
-            'total_servicios': total_servicios,
-            'completados': servicios_completados,
-            'en_proceso': servicios_en_proceso,
-            'pendientes': servicios_pendientes,
-            'promedio_general': round(promedio_general, 2)
-        }
-```
-
-
----
-
-## 📄 ./servicios/services/__init__.py
-
-```python
-
 ```
 
 
@@ -2138,362 +2500,282 @@ class TampBlockTalleresSerializer(serializers.ModelSerializer):
 
 ---
 
-## 📄 ./core/views.py
+## 📄 ./core/urls.py
 
 ```python
 """
-CORE VIEWS: Usuarios, Vehículos, Calendarios
+CORE URLS (ACTUALIZADO CON AUTH)
 """
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from django.shortcuts import get_object_or_404
-from datetime import datetime, timedelta
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import (
+    TipoUsuarioViewSet, EstadoViewSet, UsuarioViewSet,
+    MarcaViewSet, ModeloViewSet, VehiculoViewSet,
+    TampBlockPrincipalViewSet, TampBlockTalleresViewSet
+)
+try:
+    from .auth_views import login_view, logout_view, current_user_view, register_view
+except ImportError:
+    # Si no existe auth_views.py todavía, crear placeholder
+    from rest_framework.decorators import api_view
+    from rest_framework.response import Response
+    
+    @api_view(['POST'])
+    def login_view(request):
+        return Response({'error': 'Auth views not implemented yet'})
+    
+    @api_view(['POST'])
+    def logout_view(request):
+        return Response({'error': 'Auth views not implemented yet'})
+    
+    @api_view(['GET'])
+    def current_user_view(request):
+        return Response({'error': 'Auth views not implemented yet'})
+    
+    @api_view(['POST'])
+    def register_view(request):
+        return Response({'error': 'Auth views not implemented yet'})
 
+router = DefaultRouter()
+
+# Catálogos
+router.register(r'tipos-usuario', TipoUsuarioViewSet, basename='tipo-usuario')
+router.register(r'estados', EstadoViewSet, basename='estado')
+
+# Usuarios
+router.register(r'usuarios', UsuarioViewSet, basename='usuario')
+
+# Vehículos
+router.register(r'marcas', MarcaViewSet, basename='marca')
+router.register(r'modelos', ModeloViewSet, basename='modelo')
+router.register(r'vehiculos', VehiculoViewSet, basename='vehiculo')
+
+# Calendarios
+router.register(r'calendario-principal', TampBlockPrincipalViewSet, basename='calendario-principal')
+router.register(r'calendario-talleres', TampBlockTalleresViewSet, basename='calendario-talleres')
+
+urlpatterns = [
+    # Autenticación
+    path('auth/login/', login_view, name='login'),
+    path('auth/logout/', logout_view, name='logout'),
+    path('auth/current-user/', current_user_view, name='current-user'),
+    path('auth/register/', register_view, name='register'),
+    
+    # Router URLs
+    path('', include(router.urls)),
+]
+```
+
+
+---
+
+## 📄 ./core/__init__.py
+
+```python
+
+```
+
+
+---
+
+## 📄 ./core/admin.py
+
+```python
+"""
+CORE ADMIN: Registro de modelos en Django Admin
+"""
+from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin
 from .models import (
     TipoUsuario, Usuario, Estado, Marca, Modelo,
     Vehiculo, TampBlockPrincipal, TampBlockTalleres
 )
-from .serializers import (
-    TipoUsuarioSerializer, UsuarioSerializer, UsuarioCreateSerializer,
-    EstadoSerializer, MarcaSerializer, ModeloSerializer, ModeloDetailSerializer,
-    VehiculoSerializer, VehiculoDetailSerializer,
-    TampBlockPrincipalSerializer, TampBlockTalleresSerializer
-)
-from .services.usuario_service import UsuarioService
-from .services.vehiculo_service import VehiculoService
-from .services.calendario_service import CalendarioService
 
 
-# =====================
-# TIPOS Y ESTADOS
-# =====================
-
-class TipoUsuarioViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    ViewSet para ver tipos de usuario
-    """
-    queryset = TipoUsuario.objects.all()
-    serializer_class = TipoUsuarioSerializer
-    permission_classes = [AllowAny]
+@admin.register(TipoUsuario)
+class TipoUsuarioAdmin(admin.ModelAdmin):
+    list_display = ['cve', 'descripcion']
+    search_fields = ['cve', 'descripcion']
 
 
-class EstadoViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    ViewSet para ver estados del sistema
-    """
-    queryset = Estado.objects.all()
-    serializer_class = EstadoSerializer
-    permission_classes = [AllowAny]
+@admin.register(Usuario)
+class UsuarioAdmin(UserAdmin):
+    list_display = ['username', 'email', 'nombre', 'id_tipo', 'activo', 'creado_at']
+    list_filter = ['id_tipo', 'activo', 'creado_at']
+    search_fields = ['username', 'email', 'nombre', 'cve']
+    ordering = ['-creado_at']
     
-    @action(detail=False, methods=['get'])
-    def por_tipo(self, request):
-        """Obtener estados por tipo (solicitud, reservacion, servicio)"""
-        tipo = request.query_params.get('tipo')
-        if not tipo:
-            return Response(
-                {'error': 'Parámetro tipo requerido'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        estados = Estado.objects.filter(tipo=tipo)
-        serializer = self.get_serializer(estados, many=True)
-        return Response(serializer.data)
+    fieldsets = UserAdmin.fieldsets + (
+        ('Información Adicional', {
+            'fields': ('cve', 'id_tipo', 'nombre', 'telefono', 'activo')
+        }),
+    )
+    
+    add_fieldsets = UserAdmin.add_fieldsets + (
+        ('Información Adicional', {
+            'fields': ('cve', 'id_tipo', 'nombre', 'telefono', 'activo')
+        }),
+    )
 
 
-# =====================
-# USUARIOS
-# =====================
-
-class UsuarioViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet para gestión de usuarios
-    """
-    queryset = Usuario.objects.all()
-    serializer_class = UsuarioSerializer
-    permission_classes = [IsAuthenticated]
-    
-    def get_serializer_class(self):
-        if self.action == 'create':
-            return UsuarioCreateSerializer
-        return UsuarioSerializer
-    
-    @action(detail=False, methods=['get'])
-    def por_tipo(self, request):
-        """Filtrar usuarios por tipo"""
-        tipo = request.query_params.get('tipo')
-        if not tipo:
-            return Response(
-                {'error': 'Parámetro tipo requerido'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        usuarios = UsuarioService.obtener_por_tipo(tipo)
-        serializer = self.get_serializer(usuarios, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=False, methods=['get'])
-    def talleres(self, request):
-        """Obtener solo talleres"""
-        talleres = UsuarioService.obtener_talleres()
-        serializer = self.get_serializer(talleres, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=False, methods=['get'])
-    def clientes(self, request):
-        """Obtener solo clientes"""
-        clientes = UsuarioService.obtener_clientes()
-        serializer = self.get_serializer(clientes, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=True, methods=['post'])
-    def cambiar_estado(self, request, pk=None):
-        """Activar/desactivar usuario"""
-        usuario = self.get_object()
-        activo = request.data.get('activo')
-        
-        if activo is None:
-            return Response(
-                {'error': 'Campo activo requerido'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        usuario = UsuarioService.cambiar_estado(usuario.id, activo)
-        serializer = self.get_serializer(usuario)
-        return Response(serializer.data)
+@admin.register(Estado)
+class EstadoAdmin(admin.ModelAdmin):
+    list_display = ['clave', 'descripcion', 'tipo']
+    list_filter = ['tipo']
+    search_fields = ['clave', 'descripcion']
 
 
-# =====================
-# VEHÍCULOS
-# =====================
-
-class MarcaViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet para gestión de marcas
-    """
-    queryset = Marca.objects.all()
-    serializer_class = MarcaSerializer
-    permission_classes = [IsAuthenticated]
-    
-    @action(detail=False, methods=['get'])
-    def activas(self, request):
-        """Solo marcas activas"""
-        marcas = Marca.objects.filter(activo=True)
-        serializer = self.get_serializer(marcas, many=True)
-        return Response(serializer.data)
+@admin.register(Marca)
+class MarcaAdmin(admin.ModelAdmin):
+    list_display = ['nombre', 'activo']
+    list_filter = ['activo']
+    search_fields = ['nombre']
 
 
-class ModeloViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet para gestión de modelos
-    """
-    queryset = Modelo.objects.all()
-    serializer_class = ModeloSerializer
-    permission_classes = [IsAuthenticated]
-    
-    def get_serializer_class(self):
-        if self.action == 'retrieve':
-            return ModeloDetailSerializer
-        return ModeloSerializer
-    
-    @action(detail=False, methods=['get'])
-    def por_marca(self, request):
-        """Filtrar modelos por marca"""
-        marca_id = request.query_params.get('marca_id')
-        if not marca_id:
-            return Response(
-                {'error': 'Parámetro marca_id requerido'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        modelos = Modelo.objects.filter(id_marca_id=marca_id, activo=True)
-        serializer = self.get_serializer(modelos, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=False, methods=['get'])
-    def atendibles(self, request):
-        """Solo modelos atendibles"""
-        modelos = Modelo.objects.filter(atendible=True, activo=True)
-        serializer = self.get_serializer(modelos, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=True, methods=['get'])
-    def verificar_atendible(self, request, pk=None):
-        """Verificar si un modelo es atendible"""
-        modelo = self.get_object()
-        ano = request.query_params.get('ano')
-        
-        if not ano:
-            return Response({'atendible': modelo.atendible})
-        
-        try:
-            ano = int(ano)
-            atendible = VehiculoService.validar_modelo_atendible(modelo.id, ano)
-            return Response({'atendible': atendible})
-        except ValueError:
-            return Response(
-                {'error': 'Año inválido'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+@admin.register(Modelo)
+class ModeloAdmin(admin.ModelAdmin):
+    list_display = ['nombre', 'id_marca', 'atendible', 'ano_inicio', 'ano_fin', 'activo']
+    list_filter = ['id_marca', 'atendible', 'activo']
+    search_fields = ['nombre', 'id_marca__nombre']
+    ordering = ['id_marca__nombre', 'nombre']
 
 
-class VehiculoViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet para gestión de vehículos
-    """
-    queryset = Vehiculo.objects.all()
-    serializer_class = VehiculoSerializer
-    permission_classes = [IsAuthenticated]
+@admin.register(Vehiculo)
+class VehiculoAdmin(admin.ModelAdmin):
+    list_display = ['placa', 'id_modelo', 'id_usuario_propietario', 'ano', 'color', 'creado_at']
+    list_filter = ['id_modelo__id_marca', 'creado_at']
+    search_fields = ['placa', 'vin', 'id_usuario_propietario__nombre']
+    ordering = ['-creado_at']
     
-    def get_serializer_class(self):
-        if self.action == 'retrieve':
-            return VehiculoDetailSerializer
-        return VehiculoSerializer
-    
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        user = self.request.user
-        
-        # Si es cliente, solo ver sus vehículos
-        if user.id_tipo.cve == 'cliente':
-            queryset = queryset.filter(id_usuario_propietario=user)
-        
-        return queryset
-    
-    @action(detail=False, methods=['get'])
-    def mis_vehiculos(self, request):
-        """Obtener vehículos del usuario actual"""
-        vehiculos = VehiculoService.obtener_por_propietario(request.user.id)
-        serializer = self.get_serializer(vehiculos, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=True, methods=['get'])
-    def validar(self, request, pk=None):
-        """Validar si un vehículo puede ser atendido"""
-        vehiculo = self.get_object()
-        puede_atender, mensaje = VehiculoService.puede_ser_atendido(vehiculo.id)
-        
-        return Response({
-            'puede_atender': puede_atender,
-            'mensaje': mensaje
-        })
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related('id_modelo__id_marca', 'id_usuario_propietario')
 
 
-# =====================
-# CALENDARIOS
-# =====================
-
-class TampBlockPrincipalViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet para calendario del taller principal
-    """
-    queryset = TampBlockPrincipal.objects.all()
-    serializer_class = TampBlockPrincipalSerializer
-    permission_classes = [IsAuthenticated]
+@admin.register(TampBlockPrincipal)
+class TampBlockPrincipalAdmin(admin.ModelAdmin):
+    list_display = ['fecha', 'hora_inicio', 'hora_fin', 'disponible', 'capacidad', 'reservados', 'disponibles_display']
+    list_filter = ['disponible', 'fecha']
+    search_fields = ['fecha']
+    ordering = ['fecha', 'hora_inicio']
     
-    @action(detail=False, methods=['get'])
-    def disponibles(self, request):
-        """Obtener fechas disponibles"""
-        fecha_inicio = request.query_params.get('fecha_inicio')
-        fecha_fin = request.query_params.get('fecha_fin')
-        
-        if not fecha_inicio:
-            fecha_inicio = datetime.now().date()
-        else:
-            fecha_inicio = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
-        
-        if not fecha_fin:
-            fecha_fin = fecha_inicio + timedelta(days=30)
-        else:
-            fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
-        
-        fechas = CalendarioService.obtener_fechas_disponibles_principal(
-            fecha_inicio, fecha_fin
+    def disponibles_display(self, obj):
+        return obj.disponibles
+    disponibles_display.short_description = 'Disponibles'
+
+
+@admin.register(TampBlockTalleres)
+class TampBlockTalleresAdmin(admin.ModelAdmin):
+    list_display = ['id_usuario_taller', 'fecha', 'disponible', 'capacidad', 'reservados', 'disponibles_display']
+    list_filter = ['disponible', 'fecha', 'id_usuario_taller']
+    search_fields = ['id_usuario_taller__nombre', 'fecha']
+    ordering = ['fecha']
+    
+    def disponibles_display(self, obj):
+        return obj.disponibles
+    disponibles_display.short_description = 'Disponibles'
+```
+
+
+---
+
+## 📄 ./core/tests.py
+
+```python
+from django.test import TestCase
+
+# Create your tests here.
+
+```
+
+
+---
+
+## 📄 ./core/auth_views.py
+
+```python
+"""
+CORE AUTH VIEWS - Sistema de Autenticación
+"""
+from rest_framework import status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from django.contrib.auth import authenticate, login, logout
+from .serializers import UsuarioSerializer, UsuarioCreateSerializer
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def login_view(request):
+    """Endpoint de login"""
+    email = request.data.get('email')
+    password = request.data.get('password')
+    
+    if not email or not password:
+        return Response(
+            {'error': 'Email y contraseña son requeridos'},
+            status=status.HTTP_400_BAD_REQUEST
         )
-        serializer = self.get_serializer(fechas, many=True)
-        return Response(serializer.data)
     
-    @action(detail=True, methods=['post'])
-    def reservar(self, request, pk=None):
-        """Reservar un espacio"""
-        tamp_block = self.get_object()
-        exito = CalendarioService.reservar_espacio_principal(tamp_block.id)
-        
-        if exito:
-            serializer = self.get_serializer(
-                TampBlockPrincipal.objects.get(id=tamp_block.id)
-            )
-            return Response(serializer.data)
-        else:
-            return Response(
-                {'error': 'No hay espacios disponibles'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-
-class TampBlockTalleresViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet para calendario de talleres secundarios
-    """
-    queryset = TampBlockTalleres.objects.all()
-    serializer_class = TampBlockTalleresSerializer
-    permission_classes = [IsAuthenticated]
+    # Autenticar usuario
+    user = authenticate(request, username=email, password=password)
     
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        user = self.request.user
-        
-        # Si es taller, solo ver su propio calendario
-        if user.id_tipo.cve == 'taller':
-            queryset = queryset.filter(id_usuario_taller=user)
-        
-        return queryset
-    
-    @action(detail=False, methods=['get'])
-    def por_taller(self, request):
-        """Obtener calendario de un taller específico"""
-        taller_id = request.query_params.get('taller_id')
-        if not taller_id:
-            return Response(
-                {'error': 'Parámetro taller_id requerido'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        fecha_inicio = request.query_params.get('fecha_inicio')
-        fecha_fin = request.query_params.get('fecha_fin')
-        
-        if not fecha_inicio:
-            fecha_inicio = datetime.now().date()
-        else:
-            fecha_inicio = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
-        
-        if not fecha_fin:
-            fecha_fin = fecha_inicio + timedelta(days=30)
-        else:
-            fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
-        
-        fechas = CalendarioService.obtener_fechas_disponibles_taller(
-            int(taller_id), fecha_inicio, fecha_fin
+    if user is None:
+        return Response(
+            {'error': 'Credenciales inválidas'},
+            status=status.HTTP_401_UNAUTHORIZED
         )
-        serializer = self.get_serializer(fechas, many=True)
-        return Response(serializer.data)
     
-    @action(detail=False, methods=['get'])
-    def mi_calendario(self, request):
-        """Obtener calendario del taller actual"""
-        if request.user.id_tipo.cve != 'taller':
-            return Response(
-                {'error': 'Solo talleres pueden acceder a esta función'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        fechas = TampBlockTalleres.objects.filter(
-            id_usuario_taller=request.user
-        ).order_by('fecha')
-        
-        serializer = self.get_serializer(fechas, many=True)
-        return Response(serializer.data)
+    if not user.activo:
+        return Response(
+            {'error': 'Usuario inactivo'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Login
+    login(request, user)
+    
+    serializer = UsuarioSerializer(user)
+    return Response({
+        'message': 'Login exitoso',
+        'user': serializer.data
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout_view(request):
+    """Endpoint de logout"""
+    logout(request)
+    return Response({'message': 'Logout exitoso'})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def current_user_view(request):
+    """Obtener usuario actual"""
+    serializer = UsuarioSerializer(request.user)
+    return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def register_view(request):
+    """Registro de nuevo usuario"""
+    serializer = UsuarioCreateSerializer(data=request.data)
+    
+    if serializer.is_valid():
+        user = serializer.save()
+        return Response(
+            {
+                'message': 'Usuario creado exitosamente',
+                'user': UsuarioSerializer(user).data
+            },
+            status=status.HTTP_201_CREATED
+        )
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 ```
 
 
@@ -2583,7 +2865,7 @@ class Estado(models.Model):
         (TIPO_SERVICIO, 'Servicio'),
     ]
     
-    clave = models.CharField(max_length=50, unique=True)
+    clave = models.CharField(max_length=50)  # ⬅️ SIN unique=True
     descripcion = models.CharField(max_length=200)
     tipo = models.CharField(max_length=50, choices=TIPO_CHOICES)
     
@@ -2591,6 +2873,7 @@ class Estado(models.Model):
         db_table = 'estados'
         verbose_name = 'Estado'
         verbose_name_plural = 'Estados'
+        unique_together = [['clave', 'tipo']]  # ⬅️ ESTO ES IMPORTANTE
     
     def __str__(self):
         return f"{self.descripcion} ({self.tipo})"
@@ -2755,128 +3038,6 @@ class TampBlockTalleres(models.Model):
 
 ---
 
-## 📄 ./core/admin.py
-
-```python
-"""
-CORE ADMIN: Registro de modelos en Django Admin
-"""
-from django.contrib import admin
-from django.contrib.auth.admin import UserAdmin
-from .models import (
-    TipoUsuario, Usuario, Estado, Marca, Modelo,
-    Vehiculo, TampBlockPrincipal, TampBlockTalleres
-)
-
-
-@admin.register(TipoUsuario)
-class TipoUsuarioAdmin(admin.ModelAdmin):
-    list_display = ['cve', 'descripcion']
-    search_fields = ['cve', 'descripcion']
-
-
-@admin.register(Usuario)
-class UsuarioAdmin(UserAdmin):
-    list_display = ['username', 'email', 'nombre', 'id_tipo', 'activo', 'creado_at']
-    list_filter = ['id_tipo', 'activo', 'creado_at']
-    search_fields = ['username', 'email', 'nombre', 'cve']
-    ordering = ['-creado_at']
-    
-    fieldsets = UserAdmin.fieldsets + (
-        ('Información Adicional', {
-            'fields': ('cve', 'id_tipo', 'nombre', 'telefono', 'activo')
-        }),
-    )
-    
-    add_fieldsets = UserAdmin.add_fieldsets + (
-        ('Información Adicional', {
-            'fields': ('cve', 'id_tipo', 'nombre', 'telefono', 'activo')
-        }),
-    )
-
-
-@admin.register(Estado)
-class EstadoAdmin(admin.ModelAdmin):
-    list_display = ['clave', 'descripcion', 'tipo']
-    list_filter = ['tipo']
-    search_fields = ['clave', 'descripcion']
-
-
-@admin.register(Marca)
-class MarcaAdmin(admin.ModelAdmin):
-    list_display = ['nombre', 'activo']
-    list_filter = ['activo']
-    search_fields = ['nombre']
-
-
-@admin.register(Modelo)
-class ModeloAdmin(admin.ModelAdmin):
-    list_display = ['nombre', 'id_marca', 'atendible', 'ano_inicio', 'ano_fin', 'activo']
-    list_filter = ['id_marca', 'atendible', 'activo']
-    search_fields = ['nombre', 'id_marca__nombre']
-    ordering = ['id_marca__nombre', 'nombre']
-
-
-@admin.register(Vehiculo)
-class VehiculoAdmin(admin.ModelAdmin):
-    list_display = ['placa', 'id_modelo', 'id_usuario_propietario', 'ano', 'color', 'creado_at']
-    list_filter = ['id_modelo__id_marca', 'creado_at']
-    search_fields = ['placa', 'vin', 'id_usuario_propietario__nombre']
-    ordering = ['-creado_at']
-    
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.select_related('id_modelo__id_marca', 'id_usuario_propietario')
-
-
-@admin.register(TampBlockPrincipal)
-class TampBlockPrincipalAdmin(admin.ModelAdmin):
-    list_display = ['fecha', 'hora_inicio', 'hora_fin', 'disponible', 'capacidad', 'reservados', 'disponibles_display']
-    list_filter = ['disponible', 'fecha']
-    search_fields = ['fecha']
-    ordering = ['fecha', 'hora_inicio']
-    
-    def disponibles_display(self, obj):
-        return obj.disponibles
-    disponibles_display.short_description = 'Disponibles'
-
-
-@admin.register(TampBlockTalleres)
-class TampBlockTalleresAdmin(admin.ModelAdmin):
-    list_display = ['id_usuario_taller', 'fecha', 'disponible', 'capacidad', 'reservados', 'disponibles_display']
-    list_filter = ['disponible', 'fecha', 'id_usuario_taller']
-    search_fields = ['id_usuario_taller__nombre', 'fecha']
-    ordering = ['fecha']
-    
-    def disponibles_display(self, obj):
-        return obj.disponibles
-    disponibles_display.short_description = 'Disponibles'
-```
-
-
----
-
-## 📄 ./core/__init__.py
-
-```python
-
-```
-
-
----
-
-## 📄 ./core/tests.py
-
-```python
-from django.test import TestCase
-
-# Create your tests here.
-
-```
-
-
----
-
 ## 📄 ./core/apps.py
 
 ```python
@@ -2892,321 +3053,369 @@ class CoreConfig(AppConfig):
 
 ---
 
-## 📄 ./core/urls.py
+## 📄 ./core/views.py
 
 ```python
 """
-CORE URLS
+CORE VIEWS: Usuarios, Vehículos, Calendarios
 """
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from .views import (
-    TipoUsuarioViewSet, EstadoViewSet, UsuarioViewSet,
-    MarcaViewSet, ModeloViewSet, VehiculoViewSet,
-    TampBlockPrincipalViewSet, TampBlockTalleresViewSet
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from django.shortcuts import get_object_or_404
+from datetime import datetime, timedelta
+
+from .models import (
+    TipoUsuario, Usuario, Estado, Marca, Modelo,
+    Vehiculo, TampBlockPrincipal, TampBlockTalleres
 )
-
-router = DefaultRouter()
-
-# Catálogos
-router.register(r'tipos-usuario', TipoUsuarioViewSet, basename='tipo-usuario')
-router.register(r'estados', EstadoViewSet, basename='estado')
-
-# Usuarios
-router.register(r'usuarios', UsuarioViewSet, basename='usuario')
-
-# Vehículos
-router.register(r'marcas', MarcaViewSet, basename='marca')
-router.register(r'modelos', ModeloViewSet, basename='modelo')
-router.register(r'vehiculos', VehiculoViewSet, basename='vehiculo')
-
-# Calendarios
-router.register(r'calendario-principal', TampBlockPrincipalViewSet, basename='calendario-principal')
-router.register(r'calendario-talleres', TampBlockTalleresViewSet, basename='calendario-talleres')
-
-urlpatterns = [
-    path('', include(router.urls)),
-]
-```
+from .serializers import (
+    TipoUsuarioSerializer, UsuarioSerializer, UsuarioCreateSerializer,
+    EstadoSerializer, MarcaSerializer, ModeloSerializer, ModeloDetailSerializer,
+    VehiculoSerializer, VehiculoDetailSerializer,
+    TampBlockPrincipalSerializer, TampBlockTalleresSerializer
+)
+from .services.usuario_service import UsuarioService
+from .services.vehiculo_service import VehiculoService
+# ✅ CORREGIDO: Importar las clases correctas
+from .services.calendario_service import CalendarioPrincipalService, CalendarioTalleresService
 
 
----
+# =====================
+# TIPOS Y ESTADOS
+# =====================
 
-## 📄 ./core/repositories/vehiculo_repository.py
-
-```python
-"""
-Repository para operaciones de base de datos de Vehículos
-"""
-from typing import List, Optional
-from django.db.models import Q
-from core.models import Vehiculo, Marca, Modelo
+class TipoUsuarioViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet para ver tipos de usuario
+    """
+    queryset = TipoUsuario.objects.all()
+    serializer_class = TipoUsuarioSerializer
+    permission_classes = [AllowAny]
 
 
-class VehiculoRepository:
-    """Maneja todas las operaciones de BD para vehículos"""
+class EstadoViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet para ver estados del sistema
+    """
+    queryset = Estado.objects.all()
+    serializer_class = EstadoSerializer
+    permission_classes = [AllowAny]
     
-    @staticmethod
-    def get_all() -> List[Vehiculo]:
-        """Obtiene todos los vehículos"""
-        return Vehiculo.objects.select_related(
-            'id_modelo__id_marca',
-            'id_usuario_propietario'
-        ).all()
-    
-    @staticmethod
-    def get_by_id(vehiculo_id: int) -> Optional[Vehiculo]:
-        """Obtiene un vehículo por ID"""
-        try:
-            return Vehiculo.objects.select_related(
-                'id_modelo__id_marca',
-                'id_usuario_propietario'
-            ).get(id=vehiculo_id)
-        except Vehiculo.DoesNotExist:
-            return None
-    
-    @staticmethod
-    def get_by_placa(placa: str) -> Optional[Vehiculo]:
-        """Obtiene un vehículo por placa"""
-        try:
-            return Vehiculo.objects.select_related(
-                'id_modelo__id_marca',
-                'id_usuario_propietario'
-            ).get(placa=placa)
-        except Vehiculo.DoesNotExist:
-            return None
-    
-    @staticmethod
-    def get_by_propietario(propietario_id: int) -> List[Vehiculo]:
-        """Obtiene vehículos de un propietario"""
-        return Vehiculo.objects.filter(
-            id_usuario_propietario_id=propietario_id
-        ).select_related(
-            'id_modelo__id_marca',
-            'id_usuario_propietario'
-        )
-    
-    @staticmethod
-    def create(data: dict) -> Vehiculo:
-        """Crea un nuevo vehículo"""
-        return Vehiculo.objects.create(**data)
-    
-    @staticmethod
-    def update(vehiculo: Vehiculo, data: dict) -> Vehiculo:
-        """Actualiza un vehículo existente"""
-        for key, value in data.items():
-            setattr(vehiculo, key, value)
-        vehiculo.save()
-        return vehiculo
-    
-    @staticmethod
-    def delete(vehiculo: Vehiculo) -> None:
-        """Elimina un vehículo"""
-        vehiculo.delete()
-    
-    @staticmethod
-    def search(query: str) -> List[Vehiculo]:
-        """Busca vehículos por placa, VIN o propietario"""
-        return Vehiculo.objects.filter(
-            Q(placa__icontains=query) |
-            Q(vin__icontains=query) |
-            Q(id_usuario_propietario__nombre__icontains=query)
-        ).select_related(
-            'id_modelo__id_marca',
-            'id_usuario_propietario'
-        )
+    @action(detail=False, methods=['get'])
+    def por_tipo(self, request):
+        """Obtener estados por tipo (solicitud, reservacion, servicio)"""
+        tipo = request.query_params.get('tipo')
+        if not tipo:
+            return Response(
+                {'error': 'Parámetro tipo requerido'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        estados = Estado.objects.filter(tipo=tipo)
+        serializer = self.get_serializer(estados, many=True)
+        return Response(serializer.data)
 
 
-class ModeloRepository:
-    """Maneja operaciones de BD para modelos de vehículos"""
+# =====================
+# USUARIOS
+# =====================
+
+class UsuarioViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestión de usuarios
+    """
+    queryset = Usuario.objects.all()
+    serializer_class = UsuarioSerializer
+    permission_classes = [IsAuthenticated]
     
-    @staticmethod
-    def get_all(activo: bool = True) -> List[Modelo]:
-        """Obtiene todos los modelos"""
-        queryset = Modelo.objects.select_related('id_marca')
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return UsuarioCreateSerializer
+        return UsuarioSerializer
+    
+    @action(detail=False, methods=['get'])
+    def por_tipo(self, request):
+        """Filtrar usuarios por tipo"""
+        tipo = request.query_params.get('tipo')
+        if not tipo:
+            return Response(
+                {'error': 'Parámetro tipo requerido'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        usuarios = UsuarioService().get_usuarios_by_tipo(tipo)
+        serializer = self.get_serializer(usuarios, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def talleres(self, request):
+        """Obtener solo talleres"""
+        talleres = UsuarioService().get_talleres_activos()
+        serializer = self.get_serializer(talleres, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def clientes(self, request):
+        """Obtener solo clientes"""
+        clientes = UsuarioService().get_clientes_activos()
+        serializer = self.get_serializer(clientes, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def cambiar_estado(self, request, pk=None):
+        """Activar/desactivar usuario"""
+        usuario = self.get_object()
+        activo = request.data.get('activo')
+        
+        if activo is None:
+            return Response(
+                {'error': 'Campo activo requerido'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         if activo:
-            queryset = queryset.filter(activo=True)
+            usuario = UsuarioService().activar_usuario(usuario.id)
+        else:
+            usuario = UsuarioService().desactivar_usuario(usuario.id)
         
-        return queryset.all()
-    
-    @staticmethod
-    def get_by_id(modelo_id: int) -> Optional[Modelo]:
-        """Obtiene un modelo por ID"""
-        try:
-            return Modelo.objects.select_related('id_marca').get(id=modelo_id)
-        except Modelo.DoesNotExist:
-            return None
-    
-    @staticmethod
-    def get_by_marca(marca_id: int) -> List[Modelo]:
-        """Obtiene modelos de una marca"""
-        return Modelo.objects.filter(
-            id_marca_id=marca_id,
-            activo=True
-        ).select_related('id_marca')
-    
-    @staticmethod
-    def get_atendibles() -> List[Modelo]:
-        """Obtiene modelos atendibles"""
-        return Modelo.objects.filter(
-            atendible=True,
-            activo=True
-        ).select_related('id_marca')
-    
-    @staticmethod
-    def is_modelo_atendible(modelo_id: int, ano: int) -> bool:
-        """Verifica si un modelo es atendible para un año específico"""
-        try:
-            modelo = Modelo.objects.get(id=modelo_id)
-            
-            if not modelo.atendible:
-                return False
-            
-            if modelo.ano_inicio and ano < modelo.ano_inicio:
-                return False
-            
-            if modelo.ano_fin and ano > modelo.ano_fin:
-                return False
-            
-            return True
-        except Modelo.DoesNotExist:
-            return False
+        serializer = self.get_serializer(usuario)
+        return Response(serializer.data)
 
 
-class MarcaRepository:
-    """Maneja operaciones de BD para marcas"""
+# =====================
+# VEHÍCULOS
+# =====================
+
+class MarcaViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestión de marcas
+    """
+    queryset = Marca.objects.all()
+    serializer_class = MarcaSerializer
+    permission_classes = [IsAuthenticated]
     
-    @staticmethod
-    def get_all(activo: bool = True) -> List[Marca]:
-        """Obtiene todas las marcas"""
-        queryset = Marca.objects.all()
+    @action(detail=False, methods=['get'])
+    def activas(self, request):
+        """Solo marcas activas"""
+        marcas = Marca.objects.filter(activo=True)
+        serializer = self.get_serializer(marcas, many=True)
+        return Response(serializer.data)
+
+
+class ModeloViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestión de modelos
+    """
+    queryset = Modelo.objects.all()
+    serializer_class = ModeloSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return ModeloDetailSerializer
+        return ModeloSerializer
+    
+    @action(detail=False, methods=['get'])
+    def por_marca(self, request):
+        """Filtrar modelos por marca"""
+        marca_id = request.query_params.get('marca_id')
+        if not marca_id:
+            return Response(
+                {'error': 'Parámetro marca_id requerido'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
-        if activo:
-            queryset = queryset.filter(activo=True)
+        modelos = Modelo.objects.filter(id_marca_id=marca_id, activo=True)
+        serializer = self.get_serializer(modelos, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def atendibles(self, request):
+        """Solo modelos atendibles"""
+        modelos = Modelo.objects.filter(atendible=True, activo=True)
+        serializer = self.get_serializer(modelos, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def verificar_atendible(self, request, pk=None):
+        """Verificar si un modelo es atendible"""
+        modelo = self.get_object()
+        ano = request.query_params.get('ano')
         
-        return queryset.all()
-    
-    @staticmethod
-    def get_by_id(marca_id: int) -> Optional[Marca]:
-        """Obtiene una marca por ID"""
-        try:
-            return Marca.objects.get(id=marca_id)
-        except Marca.DoesNotExist:
-            return None
-```
-
-
----
-
-## 📄 ./core/repositories/__init__.py
-
-```python
-
-```
-
-
----
-
-## 📄 ./core/repositories/usuario_repository.py
-
-```python
-"""
-Repository para operaciones de base de datos de Usuarios
-"""
-from typing import List, Optional
-from django.db.models import Q
-from core.models import Usuario, TipoUsuario
-
-
-class UsuarioRepository:
-    """Maneja todas las operaciones de BD para usuarios"""
-    
-    @staticmethod
-    def get_all(activo: Optional[bool] = None) -> List[Usuario]:
-        """Obtiene todos los usuarios"""
-        queryset = Usuario.objects.select_related('id_tipo')
+        if not ano:
+            return Response({'atendible': modelo.atendible})
         
-        if activo is not None:
-            queryset = queryset.filter(activo=activo)
+        try:
+            from .repositories.vehiculo_repository import ModeloRepository
+            ano = int(ano)
+            atendible = ModeloRepository.is_modelo_atendible(modelo.id, ano)
+            return Response({'atendible': atendible})
+        except ValueError:
+            return Response(
+                {'error': 'Año inválido'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+class VehiculoViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestión de vehículos
+    """
+    queryset = Vehiculo.objects.all()
+    serializer_class = VehiculoSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return VehiculoDetailSerializer
+        return VehiculoSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
         
-        return queryset.all()
+        # Si es cliente, solo ver sus vehículos
+        if user.id_tipo.cve == 'cliente':
+            queryset = queryset.filter(id_usuario_propietario=user)
+        
+        return queryset
     
-    @staticmethod
-    def get_by_id(usuario_id: int) -> Optional[Usuario]:
-        """Obtiene un usuario por ID"""
+    @action(detail=False, methods=['get'])
+    def mis_vehiculos(self, request):
+        """Obtener vehículos del usuario actual"""
+        vehiculos = VehiculoService().get_vehiculos_by_propietario(request.user.id)
+        serializer = self.get_serializer(vehiculos, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def validar(self, request, pk=None):
+        """Validar si un vehículo puede ser atendido"""
+        vehiculo = self.get_object()
+        puede_atender = VehiculoService().validar_vehiculo_atendible(vehiculo.id)
+        
+        return Response({
+            'puede_atender': puede_atender,
+            'mensaje': 'El vehículo puede ser atendido' if puede_atender else 'El modelo/año no es atendible'
+        })
+
+
+# =====================
+# CALENDARIOS
+# =====================
+
+class TampBlockPrincipalViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para calendario del taller principal
+    """
+    queryset = TampBlockPrincipal.objects.all()
+    serializer_class = TampBlockPrincipalSerializer
+    permission_classes = [IsAuthenticated]
+    
+    @action(detail=False, methods=['get'])
+    def disponibles(self, request):
+        """Obtener fechas disponibles"""
+        fecha_inicio = request.query_params.get('fecha_inicio')
+        fecha_fin = request.query_params.get('fecha_fin')
+        
+        if not fecha_inicio:
+            fecha_inicio = datetime.now().date()
+        else:
+            fecha_inicio = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+        
+        if not fecha_fin:
+            fecha_fin = fecha_inicio + timedelta(days=30)
+        else:
+            fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+        
+        # ✅ CORREGIDO: Usar CalendarioPrincipalService
+        fechas = CalendarioPrincipalService().get_bloques_disponibles(
+            fecha_inicio, fecha_fin
+        )
+        serializer = self.get_serializer(fechas, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def reservar(self, request, pk=None):
+        """Reservar un espacio"""
+        tamp_block = self.get_object()
+        
+        # ✅ CORREGIDO: Usar CalendarioPrincipalService
         try:
-            return Usuario.objects.select_related('id_tipo').get(id=usuario_id)
-        except Usuario.DoesNotExist:
-            return None
+            bloque = CalendarioPrincipalService().reservar_bloque(tamp_block.id)
+            serializer = self.get_serializer(bloque)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+class TampBlockTalleresViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para calendario de talleres secundarios
+    """
+    queryset = TampBlockTalleres.objects.all()
+    serializer_class = TampBlockTalleresSerializer
+    permission_classes = [IsAuthenticated]
     
-    @staticmethod
-    def get_by_email(email: str) -> Optional[Usuario]:
-        """Obtiene un usuario por email"""
-        try:
-            return Usuario.objects.select_related('id_tipo').get(email=email)
-        except Usuario.DoesNotExist:
-            return None
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        
+        # Si es taller, solo ver su propio calendario
+        if user.id_tipo.cve == 'taller':
+            queryset = queryset.filter(id_usuario_taller=user)
+        
+        return queryset
     
-    @staticmethod
-    def get_by_username(username: str) -> Optional[Usuario]:
-        """Obtiene un usuario por username"""
-        try:
-            return Usuario.objects.select_related('id_tipo').get(username=username)
-        except Usuario.DoesNotExist:
-            return None
+    @action(detail=False, methods=['get'])
+    def por_taller(self, request):
+        """Obtener calendario de un taller específico"""
+        taller_id = request.query_params.get('taller_id')
+        if not taller_id:
+            return Response(
+                {'error': 'Parámetro taller_id requerido'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        fecha_inicio = request.query_params.get('fecha_inicio')
+        fecha_fin = request.query_params.get('fecha_fin')
+        
+        if not fecha_inicio:
+            fecha_inicio = datetime.now().date()
+        else:
+            fecha_inicio = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+        
+        if not fecha_fin:
+            fecha_fin = fecha_inicio + timedelta(days=30)
+        else:
+            fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+        
+        # ✅ CORREGIDO: Usar CalendarioTalleresService
+        fechas = CalendarioTalleresService().get_bloques_disponibles_taller(
+            int(taller_id), fecha_inicio, fecha_fin
+        )
+        serializer = self.get_serializer(fechas, many=True)
+        return Response(serializer.data)
     
-    @staticmethod
-    def get_by_tipo(tipo_cve: str) -> List[Usuario]:
-        """Obtiene usuarios por tipo"""
-        return Usuario.objects.filter(
-            id_tipo__cve=tipo_cve,
-            activo=True
-        ).select_related('id_tipo')
-    
-    @staticmethod
-    def create(data: dict) -> Usuario:
-        """Crea un nuevo usuario"""
-        return Usuario.objects.create(**data)
-    
-    @staticmethod
-    def update(usuario: Usuario, data: dict) -> Usuario:
-        """Actualiza un usuario existente"""
-        for key, value in data.items():
-            setattr(usuario, key, value)
-        usuario.save()
-        return usuario
-    
-    @staticmethod
-    def delete(usuario: Usuario) -> None:
-        """Elimina un usuario (soft delete)"""
-        usuario.activo = False
-        usuario.save()
-    
-    @staticmethod
-    def search(query: str) -> List[Usuario]:
-        """Busca usuarios por nombre, email o username"""
-        return Usuario.objects.filter(
-            Q(nombre__icontains=query) |
-            Q(email__icontains=query) |
-            Q(username__icontains=query)
-        ).select_related('id_tipo')
-    
-    @staticmethod
-    def get_talleres_activos() -> List[Usuario]:
-        """Obtiene todos los talleres activos"""
-        return Usuario.objects.filter(
-            id_tipo__cve=TipoUsuario.TALLER,
-            activo=True
-        ).select_related('id_tipo')
-    
-    @staticmethod
-    def get_clientes_activos() -> List[Usuario]:
-        """Obtiene todos los clientes activos"""
-        return Usuario.objects.filter(
-            id_tipo__cve=TipoUsuario.CLIENTE,
-            activo=True
-        ).select_related('id_tipo')
+    @action(detail=False, methods=['get'])
+    def mi_calendario(self, request):
+        """Obtener calendario del taller actual"""
+        if request.user.id_tipo.cve != 'taller':
+            return Response(
+                {'error': 'Solo talleres pueden acceder a esta función'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        fechas = TampBlockTalleres.objects.filter(
+            id_usuario_taller=request.user
+        ).order_by('fecha')
+        
+        serializer = self.get_serializer(fechas, many=True)
+        return Response(serializer.data)
 ```
 
 
@@ -3383,6 +3592,544 @@ class CalendarioTalleresRepository:
             return block.disponible and block.reservados < block.capacidad
         except TampBlockTalleres.DoesNotExist:
             return False
+```
+
+
+---
+
+## 📄 ./core/repositories/__init__.py
+
+```python
+
+```
+
+
+---
+
+## 📄 ./core/repositories/vehiculo_repository.py
+
+```python
+"""
+Repository para operaciones de base de datos de Vehículos
+"""
+from typing import List, Optional
+from django.db.models import Q
+from core.models import Vehiculo, Marca, Modelo
+
+
+class VehiculoRepository:
+    """Maneja todas las operaciones de BD para vehículos"""
+    
+    @staticmethod
+    def get_all() -> List[Vehiculo]:
+        """Obtiene todos los vehículos"""
+        return Vehiculo.objects.select_related(
+            'id_modelo__id_marca',
+            'id_usuario_propietario'
+        ).all()
+    
+    @staticmethod
+    def get_by_id(vehiculo_id: int) -> Optional[Vehiculo]:
+        """Obtiene un vehículo por ID"""
+        try:
+            return Vehiculo.objects.select_related(
+                'id_modelo__id_marca',
+                'id_usuario_propietario'
+            ).get(id=vehiculo_id)
+        except Vehiculo.DoesNotExist:
+            return None
+    
+    @staticmethod
+    def get_by_placa(placa: str) -> Optional[Vehiculo]:
+        """Obtiene un vehículo por placa"""
+        try:
+            return Vehiculo.objects.select_related(
+                'id_modelo__id_marca',
+                'id_usuario_propietario'
+            ).get(placa=placa)
+        except Vehiculo.DoesNotExist:
+            return None
+    
+    @staticmethod
+    def get_by_propietario(propietario_id: int) -> List[Vehiculo]:
+        """Obtiene vehículos de un propietario"""
+        return Vehiculo.objects.filter(
+            id_usuario_propietario_id=propietario_id
+        ).select_related(
+            'id_modelo__id_marca',
+            'id_usuario_propietario'
+        )
+    
+    @staticmethod
+    def create(data: dict) -> Vehiculo:
+        """Crea un nuevo vehículo"""
+        return Vehiculo.objects.create(**data)
+    
+    @staticmethod
+    def update(vehiculo: Vehiculo, data: dict) -> Vehiculo:
+        """Actualiza un vehículo existente"""
+        for key, value in data.items():
+            setattr(vehiculo, key, value)
+        vehiculo.save()
+        return vehiculo
+    
+    @staticmethod
+    def delete(vehiculo: Vehiculo) -> None:
+        """Elimina un vehículo"""
+        vehiculo.delete()
+    
+    @staticmethod
+    def search(query: str) -> List[Vehiculo]:
+        """Busca vehículos por placa, VIN o propietario"""
+        return Vehiculo.objects.filter(
+            Q(placa__icontains=query) |
+            Q(vin__icontains=query) |
+            Q(id_usuario_propietario__nombre__icontains=query)
+        ).select_related(
+            'id_modelo__id_marca',
+            'id_usuario_propietario'
+        )
+
+
+class ModeloRepository:
+    """Maneja operaciones de BD para modelos de vehículos"""
+    
+    @staticmethod
+    def get_all(activo: bool = True) -> List[Modelo]:
+        """Obtiene todos los modelos"""
+        queryset = Modelo.objects.select_related('id_marca')
+        
+        if activo:
+            queryset = queryset.filter(activo=True)
+        
+        return queryset.all()
+    
+    @staticmethod
+    def get_by_id(modelo_id: int) -> Optional[Modelo]:
+        """Obtiene un modelo por ID"""
+        try:
+            return Modelo.objects.select_related('id_marca').get(id=modelo_id)
+        except Modelo.DoesNotExist:
+            return None
+    
+    @staticmethod
+    def get_by_marca(marca_id: int) -> List[Modelo]:
+        """Obtiene modelos de una marca"""
+        return Modelo.objects.filter(
+            id_marca_id=marca_id,
+            activo=True
+        ).select_related('id_marca')
+    
+    @staticmethod
+    def get_atendibles() -> List[Modelo]:
+        """Obtiene modelos atendibles"""
+        return Modelo.objects.filter(
+            atendible=True,
+            activo=True
+        ).select_related('id_marca')
+    
+    @staticmethod
+    def is_modelo_atendible(modelo_id: int, ano: int) -> bool:
+        """Verifica si un modelo es atendible para un año específico"""
+        try:
+            modelo = Modelo.objects.get(id=modelo_id)
+            
+            if not modelo.atendible:
+                return False
+            
+            if modelo.ano_inicio and ano < modelo.ano_inicio:
+                return False
+            
+            if modelo.ano_fin and ano > modelo.ano_fin:
+                return False
+            
+            return True
+        except Modelo.DoesNotExist:
+            return False
+
+
+class MarcaRepository:
+    """Maneja operaciones de BD para marcas"""
+    
+    @staticmethod
+    def get_all(activo: bool = True) -> List[Marca]:
+        """Obtiene todas las marcas"""
+        queryset = Marca.objects.all()
+        
+        if activo:
+            queryset = queryset.filter(activo=True)
+        
+        return queryset.all()
+    
+    @staticmethod
+    def get_by_id(marca_id: int) -> Optional[Marca]:
+        """Obtiene una marca por ID"""
+        try:
+            return Marca.objects.get(id=marca_id)
+        except Marca.DoesNotExist:
+            return None
+```
+
+
+---
+
+## 📄 ./core/repositories/usuario_repository.py
+
+```python
+"""
+Repository para operaciones de base de datos de Usuarios
+"""
+from typing import List, Optional
+from django.db.models import Q
+from core.models import Usuario, TipoUsuario
+
+
+class UsuarioRepository:
+    """Maneja todas las operaciones de BD para usuarios"""
+    
+    @staticmethod
+    def get_all(activo: Optional[bool] = None) -> List[Usuario]:
+        """Obtiene todos los usuarios"""
+        queryset = Usuario.objects.select_related('id_tipo')
+        
+        if activo is not None:
+            queryset = queryset.filter(activo=activo)
+        
+        return queryset.all()
+    
+    @staticmethod
+    def get_by_id(usuario_id: int) -> Optional[Usuario]:
+        """Obtiene un usuario por ID"""
+        try:
+            return Usuario.objects.select_related('id_tipo').get(id=usuario_id)
+        except Usuario.DoesNotExist:
+            return None
+    
+    @staticmethod
+    def get_by_email(email: str) -> Optional[Usuario]:
+        """Obtiene un usuario por email"""
+        try:
+            return Usuario.objects.select_related('id_tipo').get(email=email)
+        except Usuario.DoesNotExist:
+            return None
+    
+    @staticmethod
+    def get_by_username(username: str) -> Optional[Usuario]:
+        """Obtiene un usuario por username"""
+        try:
+            return Usuario.objects.select_related('id_tipo').get(username=username)
+        except Usuario.DoesNotExist:
+            return None
+    
+    @staticmethod
+    def get_by_tipo(tipo_cve: str) -> List[Usuario]:
+        """Obtiene usuarios por tipo"""
+        return Usuario.objects.filter(
+            id_tipo__cve=tipo_cve,
+            activo=True
+        ).select_related('id_tipo')
+    
+    @staticmethod
+    def create(data: dict) -> Usuario:
+        """Crea un nuevo usuario"""
+        return Usuario.objects.create(**data)
+    
+    @staticmethod
+    def update(usuario: Usuario, data: dict) -> Usuario:
+        """Actualiza un usuario existente"""
+        for key, value in data.items():
+            setattr(usuario, key, value)
+        usuario.save()
+        return usuario
+    
+    @staticmethod
+    def delete(usuario: Usuario) -> None:
+        """Elimina un usuario (soft delete)"""
+        usuario.activo = False
+        usuario.save()
+    
+    @staticmethod
+    def search(query: str) -> List[Usuario]:
+        """Busca usuarios por nombre, email o username"""
+        return Usuario.objects.filter(
+            Q(nombre__icontains=query) |
+            Q(email__icontains=query) |
+            Q(username__icontains=query)
+        ).select_related('id_tipo')
+    
+    @staticmethod
+    def get_talleres_activos() -> List[Usuario]:
+        """Obtiene todos los talleres activos"""
+        return Usuario.objects.filter(
+            id_tipo__cve=TipoUsuario.TALLER,
+            activo=True
+        ).select_related('id_tipo')
+    
+    @staticmethod
+    def get_clientes_activos() -> List[Usuario]:
+        """Obtiene todos los clientes activos"""
+        return Usuario.objects.filter(
+            id_tipo__cve=TipoUsuario.CLIENTE,
+            activo=True
+        ).select_related('id_tipo')
+```
+
+
+---
+
+## 📄 ./core/management/__init__.py
+
+```python
+
+```
+
+
+---
+
+## 📄 ./core/management/commands/crear_superusuario.py
+
+```python
+# core/management/commands/crear_superusuario.py
+from django.core.management.base import BaseCommand
+from django.contrib.auth import get_user_model
+from core.models import TipoUsuario
+
+Usuario = get_user_model()
+
+
+class Command(BaseCommand):
+    help = 'Crea un superusuario con tipo de usuario administrador'
+
+    def add_arguments(self, parser):
+        parser.add_argument('--username', type=str, help='Nombre de usuario')
+        parser.add_argument('--email', type=str, help='Email')
+        parser.add_argument('--password', type=str, help='Contraseña')
+        parser.add_argument('--nombre', type=str, help='Nombre completo')
+
+    def handle(self, *args, **options):
+        # Verificar que exista el tipo administrador
+        try:
+            tipo_admin = TipoUsuario.objects.get(cve='administrador')
+        except TipoUsuario.DoesNotExist:
+            self.stdout.write(
+                self.style.ERROR('No existe el tipo de usuario "administrador". Ejecuta las migraciones primero.')
+            )
+            return
+
+        # Obtener datos
+        username = options.get('username') or input('Nombre de usuario: ')
+        email = options.get('email') or input('Email: ')
+        password = options.get('password') or input('Contraseña: ')
+        nombre = options.get('nombre') or input('Nombre completo: ')
+
+        # Verificar si ya existe
+        if Usuario.objects.filter(username=username).exists():
+            self.stdout.write(
+                self.style.ERROR(f'Ya existe un usuario con username "{username}"')
+            )
+            return
+
+        if Usuario.objects.filter(email=email).exists():
+            self.stdout.write(
+                self.style.ERROR(f'Ya existe un usuario con email "{email}"')
+            )
+            return
+
+        # Crear superusuario
+        try:
+            usuario = Usuario.objects.create_superuser(
+                username=username,
+                email=email,
+                password=password,
+                nombre=nombre,
+                id_tipo=tipo_admin,
+                cve=f'ADM{username.upper()}',
+                activo=True
+            )
+            
+            self.stdout.write(
+                self.style.SUCCESS(f'✅ Superusuario "{username}" creado exitosamente')
+            )
+            self.stdout.write(f'   Email: {email}')
+            self.stdout.write(f'   Tipo: {tipo_admin.descripcion}')
+            
+        except Exception as e:
+            self.stdout.write(
+                self.style.ERROR(f'Error al crear superusuario: {str(e)}')
+            )
+
+```
+
+
+---
+
+## 📄 ./core/management/commands/__init__.py
+
+```python
+
+```
+
+
+---
+
+## 📄 ./core/services/usuario_service.py
+
+```python
+"""
+Service para lógica de negocio de Usuarios
+"""
+from typing import List, Optional, Dict
+from django.contrib.auth.hashers import make_password
+from django.core.exceptions import ValidationError
+from core.models import Usuario, TipoUsuario
+from core.repositories.usuario_repository import UsuarioRepository
+
+
+class UsuarioService:
+    """Maneja la lógica de negocio para usuarios"""
+    
+    def __init__(self):
+        self.repository = UsuarioRepository()
+    
+    def get_all_usuarios(self, activo: Optional[bool] = None) -> List[Usuario]:
+        """Obtiene todos los usuarios"""
+        return self.repository.get_all(activo=activo)
+    
+    def get_usuario_by_id(self, usuario_id: int) -> Usuario:
+        """Obtiene un usuario por ID"""
+        usuario = self.repository.get_by_id(usuario_id)
+        
+        if not usuario:
+            raise ValidationError(f"Usuario con ID {usuario_id} no encontrado")
+        
+        return usuario
+    
+    def get_usuario_by_email(self, email: str) -> Optional[Usuario]:
+        """Obtiene un usuario por email"""
+        return self.repository.get_by_email(email)
+    
+    def get_usuarios_by_tipo(self, tipo_cve: str) -> List[Usuario]:
+        """Obtiene usuarios por tipo"""
+        return self.repository.get_by_tipo(tipo_cve)
+    
+    def get_talleres_activos(self) -> List[Usuario]:
+        """Obtiene todos los talleres activos"""
+        return self.repository.get_talleres_activos()
+    
+    def get_clientes_activos(self) -> List[Usuario]:
+        """Obtiene todos los clientes activos"""
+        return self.repository.get_clientes_activos()
+    
+    def create_usuario(self, data: Dict) -> Usuario:
+        """Crea un nuevo usuario"""
+        # Validar que el email no exista
+        if self.repository.get_by_email(data.get('email')):
+            raise ValidationError("El email ya está registrado")
+        
+        # Validar que el username no exista
+        if data.get('username') and self.repository.get_by_username(data.get('username')):
+            raise ValidationError("El username ya está registrado")
+        
+        # Encriptar password si viene
+        if 'password' in data:
+            data['password'] = make_password(data['password'])
+        
+        # Generar cve si no viene
+        if not data.get('cve'):
+            data['cve'] = self._generar_cve(data.get('id_tipo'))
+        
+        return self.repository.create(data)
+    
+    def update_usuario(self, usuario_id: int, data: Dict) -> Usuario:
+        """Actualiza un usuario existente"""
+        usuario = self.get_usuario_by_id(usuario_id)
+        
+        # Validar email si se está actualizando
+        if 'email' in data and data['email'] != usuario.email:
+            if self.repository.get_by_email(data['email']):
+                raise ValidationError("El email ya está registrado")
+        
+        # Encriptar password si viene
+        if 'password' in data:
+            data['password'] = make_password(data['password'])
+        
+        return self.repository.update(usuario, data)
+    
+    def delete_usuario(self, usuario_id: int) -> None:
+        """Elimina (desactiva) un usuario"""
+        usuario = self.get_usuario_by_id(usuario_id)
+        self.repository.delete(usuario)
+    
+    def search_usuarios(self, query: str) -> List[Usuario]:
+        """Busca usuarios"""
+        return self.repository.search(query)
+    
+    def validar_credenciales(self, email: str, password: str) -> Optional[Usuario]:
+        """Valida credenciales de un usuario"""
+        usuario = self.repository.get_by_email(email)
+        
+        if not usuario:
+            return None
+        
+        if not usuario.check_password(password):
+            return None
+        
+        if not usuario.activo:
+            raise ValidationError("Usuario inactivo")
+        
+        return usuario
+    
+    def cambiar_password(self, usuario_id: int, password_actual: str, password_nueva: str) -> Usuario:
+        """Cambia la contraseña de un usuario"""
+        usuario = self.get_usuario_by_id(usuario_id)
+        
+        if not usuario.check_password(password_actual):
+            raise ValidationError("Contraseña actual incorrecta")
+        
+        usuario.password = make_password(password_nueva)
+        usuario.save()
+        
+        return usuario
+    
+    def activar_usuario(self, usuario_id: int) -> Usuario:
+        """Activa un usuario"""
+        usuario = self.get_usuario_by_id(usuario_id)
+        usuario.activo = True
+        usuario.save()
+        return usuario
+    
+    def desactivar_usuario(self, usuario_id: int) -> Usuario:
+        """Desactiva un usuario"""
+        usuario = self.get_usuario_by_id(usuario_id)
+        usuario.activo = False
+        usuario.save()
+        return usuario
+    
+    def _generar_cve(self, tipo_usuario_id: int) -> str:
+        """Genera una clave única para el usuario"""
+        from django.utils import timezone
+        
+        tipo = TipoUsuario.objects.get(id=tipo_usuario_id)
+        timestamp = timezone.now().strftime('%Y%m%d%H%M%S')
+        
+        return f"{tipo.cve[:3].upper()}{timestamp}"
+    
+    def get_estadisticas_usuarios(self) -> Dict:
+        """Obtiene estadísticas de usuarios"""
+        total = Usuario.objects.count()
+        activos = Usuario.objects.filter(activo=True).count()
+        inactivos = total - activos
+        
+        por_tipo = {}
+        for tipo in TipoUsuario.objects.all():
+            por_tipo[tipo.cve] = Usuario.objects.filter(id_tipo=tipo).count()
+        
+        return {
+            'total': total,
+            'activos': activos,
+            'inactivos': inactivos,
+            'por_tipo': por_tipo
+        }
 ```
 
 
@@ -3784,430 +4531,170 @@ class CalendarioTalleresService:
 
 ---
 
-## 📄 ./core/services/usuario_service.py
-
-```python
-"""
-Service para lógica de negocio de Usuarios
-"""
-from typing import List, Optional, Dict
-from django.contrib.auth.hashers import make_password
-from django.core.exceptions import ValidationError
-from core.models import Usuario, TipoUsuario
-from core.repositories.usuario_repository import UsuarioRepository
-
-
-class UsuarioService:
-    """Maneja la lógica de negocio para usuarios"""
-    
-    def __init__(self):
-        self.repository = UsuarioRepository()
-    
-    def get_all_usuarios(self, activo: Optional[bool] = None) -> List[Usuario]:
-        """Obtiene todos los usuarios"""
-        return self.repository.get_all(activo=activo)
-    
-    def get_usuario_by_id(self, usuario_id: int) -> Usuario:
-        """Obtiene un usuario por ID"""
-        usuario = self.repository.get_by_id(usuario_id)
-        
-        if not usuario:
-            raise ValidationError(f"Usuario con ID {usuario_id} no encontrado")
-        
-        return usuario
-    
-    def get_usuario_by_email(self, email: str) -> Optional[Usuario]:
-        """Obtiene un usuario por email"""
-        return self.repository.get_by_email(email)
-    
-    def get_usuarios_by_tipo(self, tipo_cve: str) -> List[Usuario]:
-        """Obtiene usuarios por tipo"""
-        return self.repository.get_by_tipo(tipo_cve)
-    
-    def get_talleres_activos(self) -> List[Usuario]:
-        """Obtiene todos los talleres activos"""
-        return self.repository.get_talleres_activos()
-    
-    def get_clientes_activos(self) -> List[Usuario]:
-        """Obtiene todos los clientes activos"""
-        return self.repository.get_clientes_activos()
-    
-    def create_usuario(self, data: Dict) -> Usuario:
-        """Crea un nuevo usuario"""
-        # Validar que el email no exista
-        if self.repository.get_by_email(data.get('email')):
-            raise ValidationError("El email ya está registrado")
-        
-        # Validar que el username no exista
-        if data.get('username') and self.repository.get_by_username(data.get('username')):
-            raise ValidationError("El username ya está registrado")
-        
-        # Encriptar password si viene
-        if 'password' in data:
-            data['password'] = make_password(data['password'])
-        
-        # Generar cve si no viene
-        if not data.get('cve'):
-            data['cve'] = self._generar_cve(data.get('id_tipo'))
-        
-        return self.repository.create(data)
-    
-    def update_usuario(self, usuario_id: int, data: Dict) -> Usuario:
-        """Actualiza un usuario existente"""
-        usuario = self.get_usuario_by_id(usuario_id)
-        
-        # Validar email si se está actualizando
-        if 'email' in data and data['email'] != usuario.email:
-            if self.repository.get_by_email(data['email']):
-                raise ValidationError("El email ya está registrado")
-        
-        # Encriptar password si viene
-        if 'password' in data:
-            data['password'] = make_password(data['password'])
-        
-        return self.repository.update(usuario, data)
-    
-    def delete_usuario(self, usuario_id: int) -> None:
-        """Elimina (desactiva) un usuario"""
-        usuario = self.get_usuario_by_id(usuario_id)
-        self.repository.delete(usuario)
-    
-    def search_usuarios(self, query: str) -> List[Usuario]:
-        """Busca usuarios"""
-        return self.repository.search(query)
-    
-    def validar_credenciales(self, email: str, password: str) -> Optional[Usuario]:
-        """Valida credenciales de un usuario"""
-        usuario = self.repository.get_by_email(email)
-        
-        if not usuario:
-            return None
-        
-        if not usuario.check_password(password):
-            return None
-        
-        if not usuario.activo:
-            raise ValidationError("Usuario inactivo")
-        
-        return usuario
-    
-    def cambiar_password(self, usuario_id: int, password_actual: str, password_nueva: str) -> Usuario:
-        """Cambia la contraseña de un usuario"""
-        usuario = self.get_usuario_by_id(usuario_id)
-        
-        if not usuario.check_password(password_actual):
-            raise ValidationError("Contraseña actual incorrecta")
-        
-        usuario.password = make_password(password_nueva)
-        usuario.save()
-        
-        return usuario
-    
-    def activar_usuario(self, usuario_id: int) -> Usuario:
-        """Activa un usuario"""
-        usuario = self.get_usuario_by_id(usuario_id)
-        usuario.activo = True
-        usuario.save()
-        return usuario
-    
-    def desactivar_usuario(self, usuario_id: int) -> Usuario:
-        """Desactiva un usuario"""
-        usuario = self.get_usuario_by_id(usuario_id)
-        usuario.activo = False
-        usuario.save()
-        return usuario
-    
-    def _generar_cve(self, tipo_usuario_id: int) -> str:
-        """Genera una clave única para el usuario"""
-        from django.utils import timezone
-        
-        tipo = TipoUsuario.objects.get(id=tipo_usuario_id)
-        timestamp = timezone.now().strftime('%Y%m%d%H%M%S')
-        
-        return f"{tipo.cve[:3].upper()}{timestamp}"
-    
-    def get_estadisticas_usuarios(self) -> Dict:
-        """Obtiene estadísticas de usuarios"""
-        total = Usuario.objects.count()
-        activos = Usuario.objects.filter(activo=True).count()
-        inactivos = total - activos
-        
-        por_tipo = {}
-        for tipo in TipoUsuario.objects.all():
-            por_tipo[tipo.cve] = Usuario.objects.filter(id_tipo=tipo).count()
-        
-        return {
-            'total': total,
-            'activos': activos,
-            'inactivos': inactivos,
-            'por_tipo': por_tipo
-        }
-```
-
-
----
-
-## 📄 ./middlewares/error_handler_middleware.py
-
-```python
-"""
-Middleware para manejo centralizado de errores
-"""
-from django.http import JsonResponse
-from django.core.exceptions import ValidationError, PermissionDenied
-from django.db import IntegrityError
-from rest_framework.exceptions import APIException
-from django.utils.deprecation import MiddlewareMixin
-import logging
-
-logger = logging.getLogger(__name__)
-
-
-class ErrorHandlerMiddleware(MiddlewareMixin):
-    """Middleware para manejo global de errores"""
-    
-    def process_exception(self, request, exception):
-        """Maneja diferentes tipos de excepciones"""
-        
-        # Errores de validación
-        if isinstance(exception, ValidationError):
-            return JsonResponse(
-                {
-                    'error': 'Error de validación',
-                    'details': exception.message_dict if hasattr(exception, 'message_dict') else str(exception)
-                },
-                status=400
-            )
-        
-        # Errores de integridad de BD
-        if isinstance(exception, IntegrityError):
-            return JsonResponse(
-                {
-                    'error': 'Error de integridad de datos',
-                    'message': 'El registro viola restricciones de la base de datos'
-                },
-                status=400
-            )
-        
-        # Errores de permisos
-        if isinstance(exception, PermissionDenied):
-            return JsonResponse(
-                {
-                    'error': 'Permiso denegado',
-                    'message': str(exception)
-                },
-                status=403
-            )
-        
-        # Errores de DRF
-        if isinstance(exception, APIException):
-            return JsonResponse(
-                {
-                    'error': exception.default_detail,
-                    'details': exception.detail if hasattr(exception, 'detail') else None
-                },
-                status=exception.status_code
-            )
-        
-        # Errores genéricos
-        logger.error(f"Unhandled exception: {str(exception)}", exc_info=True)
-        
-        return JsonResponse(
-            {
-                'error': 'Error interno del servidor',
-                'message': 'Ha ocurrido un error inesperado'
-            },
-            status=500
-        )
-```
-
-
----
-
-## 📄 ./middlewares/logging_middleware.py
-
-```python
-"""
-Middleware para logging de requests y responses
-"""
-import logging
-import time
-from django.utils.deprecation import MiddlewareMixin
-
-logger = logging.getLogger(__name__)
-
-
-class RequestLoggingMiddleware(MiddlewareMixin):
-    """Middleware para registrar todas las peticiones HTTP"""
-    
-    def process_request(self, request):
-        """Registra información del request"""
-        request.start_time = time.time()
-        
-        logger.info(
-            f"Request: {request.method} {request.path} "
-            f"| User: {request.user if request.user.is_authenticated else 'Anonymous'} "
-            f"| IP: {self.get_client_ip(request)}"
-        )
-        
-        return None
-    
-    def process_response(self, request, response):
-        """Registra información del response"""
-        
-        if hasattr(request, 'start_time'):
-            duration = time.time() - request.start_time
-            
-            logger.info(
-                f"Response: {request.method} {request.path} "
-                f"| Status: {response.status_code} "
-                f"| Duration: {duration:.2f}s"
-            )
-        
-        return response
-    
-    @staticmethod
-    def get_client_ip(request):
-        """Obtiene la IP del cliente"""
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
-
-
-class APIErrorLoggingMiddleware(MiddlewareMixin):
-    """Middleware para registrar errores de la API"""
-    
-    def process_exception(self, request, exception):
-        """Registra excepciones no manejadas"""
-        
-        logger.error(
-            f"Exception: {request.method} {request.path} "
-            f"| User: {request.user if request.user.is_authenticated else 'Anonymous'} "
-            f"| Error: {str(exception)}",
-            exc_info=True
-        )
-        
-        return None
-```
-
-
----
-
-## 📄 ./middlewares/auth_middleware.py
-
-```python
-"""
-Middleware de autenticación y permisos personalizados
-"""
-from django.http import JsonResponse
-from django.utils.deprecation import MiddlewareMixin
-from core.models import TipoUsuario
-
-
-class RoleBasedAccessMiddleware(MiddlewareMixin):
-    """Middleware para control de acceso basado en roles"""
-    
-    # Rutas públicas que no requieren autenticación
-    PUBLIC_ROUTES = [
-        '/admin/',
-        '/api/core/auth/login/',
-        '/api/core/auth/register/',
-    ]
-    
-    # Rutas por tipo de usuario
-    ROLE_ROUTES = {
-        TipoUsuario.ADMINISTRADOR: [
-            '/api/core/',
-            '/api/solicitudes/',
-            '/api/servicios/',
-        ],
-        TipoUsuario.AGENTE: [
-            '/api/solicitudes/',
-            '/api/servicios/',
-        ],
-        TipoUsuario.TALLER: [
-            '/api/servicios/mis-servicios/',
-            '/api/servicios/actualizar-progreso/',
-            '/api/servicios/calendario/',
-        ],
-        TipoUsuario.CLIENTE: [
-            '/api/solicitudes/mis-solicitudes/',
-            '/api/core/vehiculos/',
-        ],
-    }
-    
-    def process_request(self, request):
-        """Procesa cada request verificando permisos"""
-        
-        # Permitir rutas públicas
-        if any(request.path.startswith(route) for route in self.PUBLIC_ROUTES):
-            return None
-        
-        # Verificar autenticación
-        if not request.user.is_authenticated:
-            return JsonResponse(
-                {'error': 'Autenticación requerida'},
-                status=401
-            )
-        
-        # Verificar si es superusuario
-        if request.user.is_superuser:
-            return None
-        
-        # Verificar permisos basados en rol
-        user_role = request.user.id_tipo.cve
-        allowed_routes = self.ROLE_ROUTES.get(user_role, [])
-        
-        # Verificar si la ruta está permitida para el rol
-        if not any(request.path.startswith(route) for route in allowed_routes):
-            return JsonResponse(
-                {
-                    'error': 'No tiene permisos para acceder a este recurso',
-                    'role': user_role
-                },
-                status=403
-            )
-        
-        return None
-
-
-class UserActiveCheckMiddleware(MiddlewareMixin):
-    """Middleware para verificar que el usuario esté activo"""
-    
-    def process_request(self, request):
-        """Verifica si el usuario está activo"""
-        
-        if request.user.is_authenticated:
-            if hasattr(request.user, 'activo') and not request.user.activo:
-                return JsonResponse(
-                    {'error': 'Usuario inactivo. Contacte al administrador.'},
-                    status=403
-                )
-        
-        return None
-```
-
-
----
-
 ## 📄 ./solicitudes/serializers.py
 
 ```python
+"""
+SOLICITUDES SERIALIZERS
+"""
+from rest_framework import serializers
+from .models import Solicitud, DetalleSolicitud, ReservacionTallerPrincipal
+from core.serializers import VehiculoSerializer, UsuarioSerializer, EstadoSerializer
+
+
+class DetalleSolicitudSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DetalleSolicitud
+        fields = '__all__'
+        read_only_fields = ['id', 'creado_at']
+
+
+class SolicitudSerializer(serializers.ModelSerializer):
+    vehiculo_info = serializers.SerializerMethodField()
+    usuario_nombre = serializers.CharField(source='id_usuario.nombre', read_only=True)
+    estado_descripcion = serializers.CharField(source='id_estado.descripcion', read_only=True)
+    
+    class Meta:
+        model = Solicitud
+        fields = [
+            'id', 'id_vehiculo', 'vehiculo_info', 'id_usuario', 'usuario_nombre',
+            'fecha_creacion', 'id_estado', 'estado_descripcion', 'descripcion',
+            'motivo_rechazo', 'aprobado_por', 'fecha_respuesta', 'referencia_externa'
+        ]
+        read_only_fields = ['id', 'fecha_creacion', 'fecha_respuesta']
+    
+    def get_vehiculo_info(self, obj):
+        return f"{obj.id_vehiculo.placa} - {obj.id_vehiculo.id_modelo}"
+
+
+class SolicitudDetailSerializer(serializers.ModelSerializer):
+    vehiculo = VehiculoSerializer(source='id_vehiculo', read_only=True)
+    usuario = UsuarioSerializer(source='id_usuario', read_only=True)
+    estado = EstadoSerializer(source='id_estado', read_only=True)
+    detalle = DetalleSolicitudSerializer(read_only=True)
+    aprobado_por_info = UsuarioSerializer(source='aprobado_por', read_only=True)
+    
+    class Meta:
+        model = Solicitud
+        fields = '__all__'
+
+
+class SolicitudCreateSerializer(serializers.ModelSerializer):
+    observaciones = serializers.CharField(required=False, allow_blank=True)
+    costo_estimado = serializers.DecimalField(
+        max_digits=12, 
+        decimal_places=2, 
+        required=False
+    )
+    
+    class Meta:
+        model = Solicitud
+        fields = ['id_vehiculo', 'id_usuario', 'descripcion', 'observaciones', 'costo_estimado']
+
+
+class AprobarRechazarSerializer(serializers.Serializer):
+    motivo = serializers.CharField(required=False, allow_blank=True)
+
+
+class ReservacionTallerPrincipalSerializer(serializers.ModelSerializer):
+    solicitud_info = serializers.SerializerMethodField()
+    estado_descripcion = serializers.CharField(source='id_estado.descripcion', read_only=True)
+    
+    class Meta:
+        model = ReservacionTallerPrincipal
+        fields = [
+            'id', 'id_solicitud', 'solicitud_info', 'id_tamp_block',
+            'id_estado', 'estado_descripcion', 'fecha_evaluacion',
+            'notas_evaluacion', 'avance_global', 'estado_global',
+            'atendido_por', 'fecha_inicio', 'fecha_fin_estimada',
+            'fecha_fin_real', 'creado_at'
+        ]
+        read_only_fields = ['id', 'creado_at', 'avance_global', 'estado_global']
+    
+    def get_solicitud_info(self, obj):
+        return f"Solicitud #{obj.id_solicitud.id} - {obj.id_solicitud.id_vehiculo.placa}"
+
+
+class ReservacionTallerPrincipalDetailSerializer(serializers.ModelSerializer):
+    solicitud = SolicitudDetailSerializer(source='id_solicitud', read_only=True)
+    estado = EstadoSerializer(source='id_estado', read_only=True)
+    servicios = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ReservacionTallerPrincipal
+        fields = '__all__'
+    
+    def get_servicios(self, obj):
+        from servicios.serializers import ReservacionServicioSerializer
+        return ReservacionServicioSerializer(
+            obj.servicios_asignados.all(),
+            many=True
+        ).data
+```
+
+
+---
+
+## 📄 ./solicitudes/urls.py
+
+```python
+"""
+SOLICITUDES URLS
+"""
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import SolicitudViewSet, ReservacionTallerPrincipalViewSet
+
+router = DefaultRouter()
+
+router.register(r'solicitudes', SolicitudViewSet, basename='solicitud')
+router.register(r'reservaciones', ReservacionTallerPrincipalViewSet, basename='reservacion')
+
+urlpatterns = [
+    path('', include(router.urls)),
+]
+```
+
+
+---
+
+## 📄 ./solicitudes/__init__.py
+
+```python
 
 ```
 
 
 ---
 
-## 📄 ./solicitudes/views.py
+## 📄 ./solicitudes/admin.py
 
 ```python
-from django.shortcuts import render
+# solicitudes/admin.py
+from django.contrib import admin
+from .models import Solicitud, DetalleSolicitud, ReservacionTallerPrincipal
 
-# Create your views here.
+@admin.register(Solicitud)
+class SolicitudAdmin(admin.ModelAdmin):
+    list_display = ['id', 'id_vehiculo', 'id_usuario', 'id_estado', 'fecha_creacion']
+    list_filter = ['id_estado', 'fecha_creacion']
+    search_fields = ['id_vehiculo__placa', 'id_usuario__nombre']
+
+@admin.register(ReservacionTallerPrincipal)
+class ReservacionAdmin(admin.ModelAdmin):
+    list_display = ['id', 'id_solicitud', 'id_estado', 'avance_global', 'creado_at']
+    list_filter = ['id_estado', 'creado_at']
+```
+
+
+---
+
+## 📄 ./solicitudes/tests.py
+
+```python
+from django.test import TestCase
+
+# Create your tests here.
 
 ```
 
@@ -4361,39 +4848,6 @@ class ReservacionTallerPrincipal(models.Model):
 
 ---
 
-## 📄 ./solicitudes/admin.py
-
-```python
-from django.contrib import admin
-
-# Register your models here.
-
-```
-
-
----
-
-## 📄 ./solicitudes/__init__.py
-
-```python
-
-```
-
-
----
-
-## 📄 ./solicitudes/tests.py
-
-```python
-from django.test import TestCase
-
-# Create your tests here.
-
-```
-
-
----
-
 ## 📄 ./solicitudes/apps.py
 
 ```python
@@ -4404,6 +4858,178 @@ class SolicitudesConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'solicitudes'
 
+```
+
+
+---
+
+## 📄 ./solicitudes/views.py
+
+```python
+"""
+SOLICITUDES VIEWS
+"""
+from django.shortcuts import render
+# Create your views here.
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+from .models import Solicitud, ReservacionTallerPrincipal
+from .serializers import (
+    SolicitudSerializer, SolicitudDetailSerializer, SolicitudCreateSerializer,
+    AprobarRechazarSerializer, ReservacionTallerPrincipalSerializer,
+    ReservacionTallerPrincipalDetailSerializer
+)
+from .services.solicitud_service import SolicitudService
+from .services.reservacion_service import ReservacionService
+
+
+class SolicitudViewSet(viewsets.ModelViewSet):
+    """ViewSet para gestión de solicitudes"""
+    queryset = Solicitud.objects.all()
+    serializer_class = SolicitudSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return SolicitudCreateSerializer
+        elif self.action == 'retrieve':
+            return SolicitudDetailSerializer
+        return SolicitudSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        
+        # Si es cliente, solo ver sus solicitudes
+        if user.id_tipo.cve == 'cliente':
+            queryset = queryset.filter(id_usuario=user)
+        
+        return queryset
+    
+    def create(self, request):
+        serializer = SolicitudCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        try:
+            solicitud = SolicitudService().create_solicitud(serializer.validated_data)
+            result_serializer = SolicitudDetailSerializer(solicitud)
+            return Response(result_serializer.data, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['get'])
+    def mis_solicitudes(self, request):
+        """Obtener solicitudes del usuario actual"""
+        solicitudes = SolicitudService().get_solicitudes_by_usuario(request.user.id)
+        serializer = self.get_serializer(solicitudes, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def pendientes(self, request):
+        """Obtener solicitudes pendientes"""
+        solicitudes = SolicitudService().get_solicitudes_pendientes()
+        serializer = self.get_serializer(solicitudes, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def aprobar(self, request, pk=None):
+        """Aprobar una solicitud"""
+        if request.user.id_tipo.cve not in ['administrador', 'agente']:
+            return Response(
+                {'error': 'No tiene permisos para aprobar solicitudes'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        try:
+            solicitud = SolicitudService().aprobar_solicitud(int(pk), request.user.id)
+            serializer = self.get_serializer(solicitud)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def rechazar(self, request, pk=None):
+        """Rechazar una solicitud"""
+        if request.user.id_tipo.cve not in ['administrador', 'agente']:
+            return Response(
+                {'error': 'No tiene permisos para rechazar solicitudes'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = AprobarRechazarSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        motivo = serializer.validated_data.get('motivo', '')
+        if not motivo:
+            return Response(
+                {'error': 'Debe proporcionar un motivo de rechazo'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            solicitud = SolicitudService().rechazar_solicitud(
+                int(pk), motivo, request.user.id
+            )
+            result_serializer = self.get_serializer(solicitud)
+            return Response(result_serializer.data)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ReservacionTallerPrincipalViewSet(viewsets.ModelViewSet):
+    """ViewSet para gestión de reservaciones"""
+    queryset = ReservacionTallerPrincipal.objects.all()
+    serializer_class = ReservacionTallerPrincipalSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return ReservacionTallerPrincipalDetailSerializer
+        return ReservacionTallerPrincipalSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        
+        # Si es cliente, solo ver sus reservaciones
+        if user.id_tipo.cve == 'cliente':
+            queryset = queryset.filter(id_solicitud__id_usuario=user)
+        
+        return queryset
+    
+    def create(self, request):
+        try:
+            reservacion = ReservacionService().create_reservacion(request.data)
+            serializer = self.get_serializer(reservacion)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['get'])
+    def mis_reservaciones(self, request):
+        """Obtener reservaciones del usuario actual"""
+        reservaciones = ReservacionService().get_reservaciones_by_cliente(request.user.id)
+        serializer = self.get_serializer(reservaciones, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def iniciar_evaluacion(self, request, pk=None):
+        """Iniciar evaluación de una reservación"""
+        if request.user.id_tipo.cve not in ['administrador', 'agente']:
+            return Response(
+                {'error': 'No tiene permisos para iniciar evaluaciones'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        try:
+            reservacion = ReservacionService().iniciar_evaluacion(int(pk), request.user.id)
+            serializer = self.get_serializer(reservacion)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 ```
 
 
@@ -4793,6 +5419,166 @@ class ReservacionRepository:
 
 ---
 
+## 📄 ./solicitudes/services/reservacion_service.py
+
+```python
+"""
+Service para lógica de negocio de Reservaciones
+"""
+from typing import List, Dict
+from datetime import date
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.utils import timezone
+from solicitudes.models import ReservacionTallerPrincipal
+from solicitudes.repositories.reservacion_repository import ReservacionRepository
+from core.models import Estado
+from core.services.calendario_service import CalendarioPrincipalService
+
+
+class ReservacionService:
+    """Maneja la lógica de negocio para reservaciones"""
+    
+    def __init__(self):
+        self.repository = ReservacionRepository()
+        self.calendario_service = CalendarioPrincipalService()
+    
+    def get_all_reservaciones(self) -> List[ReservacionTallerPrincipal]:
+        """Obtiene todas las reservaciones"""
+        return self.repository.get_all()
+    
+    def get_reservacion_by_id(self, reservacion_id: int) -> ReservacionTallerPrincipal:
+        """Obtiene una reservación por ID"""
+        reservacion = self.repository.get_by_id(reservacion_id)
+        
+        if not reservacion:
+            raise ValidationError(f"Reservación con ID {reservacion_id} no encontrada")
+        
+        return reservacion
+    
+    def get_reservaciones_by_cliente(self, cliente_id: int) -> List[ReservacionTallerPrincipal]:
+        """Obtiene reservaciones de un cliente"""
+        return self.repository.get_by_cliente(cliente_id)
+    
+    def get_reservaciones_by_fecha(self, fecha: date) -> List[ReservacionTallerPrincipal]:
+        """Obtiene reservaciones de una fecha"""
+        return self.repository.get_by_fecha(fecha)
+    
+    def get_reservaciones_pendientes(self) -> List[ReservacionTallerPrincipal]:
+        """Obtiene reservaciones pendientes"""
+        return self.repository.get_pendientes()
+    
+    def get_reservaciones_proximas(self, dias: int = 7) -> List[ReservacionTallerPrincipal]:
+        """Obtiene reservaciones próximas"""
+        return self.repository.get_proximas(dias)
+    
+    @transaction.atomic
+    def create_reservacion(self, data: Dict) -> ReservacionTallerPrincipal:
+        """Crea una nueva reservación"""
+        from solicitudes.services.solicitud_service import SolicitudService
+        
+        solicitud_id = data.get('id_solicitud')
+        tamp_block_id = data.get('id_tamp_block')
+        
+        # Validar que la solicitud exista y esté aprobada
+        solicitud_service = SolicitudService()
+        solicitud = solicitud_service.get_solicitud_by_id(solicitud_id)
+        
+        if solicitud.id_estado.clave != 'aprobada':
+            raise ValidationError("Solo se pueden crear reservaciones de solicitudes aprobadas")
+        
+        # Validar que no tenga reservación
+        if hasattr(solicitud, 'reservacion'):
+            raise ValidationError("La solicitud ya tiene una reservación")
+        
+        # Validar y reservar el bloque
+        bloque = self.calendario_service.reservar_bloque(tamp_block_id)
+        
+        # Obtener estado pendiente
+        estado_pendiente = Estado.objects.get(
+            clave='pendiente',
+            tipo=Estado.TIPO_RESERVACION
+        )
+        
+        data['id_estado'] = estado_pendiente
+        
+        try:
+            reservacion = self.repository.create(data)
+            return reservacion
+        except Exception as e:
+            # Si falla, liberar el bloque
+            self.calendario_service.liberar_bloque(tamp_block_id)
+            raise e
+    
+    def update_reservacion(self, reservacion_id: int, data: Dict) -> ReservacionTallerPrincipal:
+        """Actualiza una reservación"""
+        reservacion = self.get_reservacion_by_id(reservacion_id)
+        return self.repository.update(reservacion, data)
+    
+    @transaction.atomic
+    def iniciar_evaluacion(
+        self,
+        reservacion_id: int,
+        atendido_por_id: int
+    ) -> ReservacionTallerPrincipal:
+        """Inicia la evaluación de una reservación"""
+        reservacion = self.get_reservacion_by_id(reservacion_id)
+        
+        estado_en_proceso = Estado.objects.get(
+            clave='en_proceso',
+            tipo=Estado.TIPO_RESERVACION
+        )
+        
+        return self.repository.update(reservacion, {
+            'id_estado': estado_en_proceso,
+            'atendido_por_id': atendido_por_id,
+            'fecha_evaluacion': timezone.now(),
+            'fecha_inicio': timezone.now()
+        })
+    
+    @transaction.atomic
+    def completar_evaluacion(
+        self,
+        reservacion_id: int,
+        notas: str
+    ) -> ReservacionTallerPrincipal:
+        """Completa la evaluación de una reservación"""
+        reservacion = self.get_reservacion_by_id(reservacion_id)
+        
+        return self.repository.update(reservacion, {
+            'notas_evaluacion': notas,
+            'fecha_fin_real': timezone.now()
+        })
+    
+    def actualizar_avance_global(self, reservacion_id: int) -> ReservacionTallerPrincipal:
+        """Actualiza el avance global de la reservación"""
+        return self.repository.actualizar_avance_global(reservacion_id)
+    
+    @transaction.atomic
+    def cancelar_reservacion(self, reservacion_id: int) -> ReservacionTallerPrincipal:
+        """Cancela una reservación"""
+        reservacion = self.get_reservacion_by_id(reservacion_id)
+        
+        # Liberar el bloque
+        self.calendario_service.liberar_bloque(reservacion.id_tamp_block_id)
+        
+        estado_cancelada = Estado.objects.get(
+            clave='cancelada',
+            tipo=Estado.TIPO_RESERVACION
+        )
+        
+        return self.repository.update(reservacion, {
+            'id_estado': estado_cancelada
+        })
+    
+    def search_reservaciones(self, query: str) -> List[ReservacionTallerPrincipal]:
+        """Busca reservaciones"""
+        return self.repository.search(query)
+```
+
+
+---
+
 ## 📄 ./solicitudes/services/solicitud_service.py
 
 ```python
@@ -4980,166 +5766,6 @@ class SolicitudService:
 
 ---
 
-## 📄 ./solicitudes/services/reservacion_service.py
-
-```python
-"""
-Service para lógica de negocio de Reservaciones
-"""
-from typing import List, Dict
-from datetime import date
-from django.core.exceptions import ValidationError
-from django.db import transaction
-from django.utils import timezone
-from solicitudes.models import ReservacionTallerPrincipal
-from solicitudes.repositories.reservacion_repository import ReservacionRepository
-from core.models import Estado
-from core.services.calendario_service import CalendarioPrincipalService
-
-
-class ReservacionService:
-    """Maneja la lógica de negocio para reservaciones"""
-    
-    def __init__(self):
-        self.repository = ReservacionRepository()
-        self.calendario_service = CalendarioPrincipalService()
-    
-    def get_all_reservaciones(self) -> List[ReservacionTallerPrincipal]:
-        """Obtiene todas las reservaciones"""
-        return self.repository.get_all()
-    
-    def get_reservacion_by_id(self, reservacion_id: int) -> ReservacionTallerPrincipal:
-        """Obtiene una reservación por ID"""
-        reservacion = self.repository.get_by_id(reservacion_id)
-        
-        if not reservacion:
-            raise ValidationError(f"Reservación con ID {reservacion_id} no encontrada")
-        
-        return reservacion
-    
-    def get_reservaciones_by_cliente(self, cliente_id: int) -> List[ReservacionTallerPrincipal]:
-        """Obtiene reservaciones de un cliente"""
-        return self.repository.get_by_cliente(cliente_id)
-    
-    def get_reservaciones_by_fecha(self, fecha: date) -> List[ReservacionTallerPrincipal]:
-        """Obtiene reservaciones de una fecha"""
-        return self.repository.get_by_fecha(fecha)
-    
-    def get_reservaciones_pendientes(self) -> List[ReservacionTallerPrincipal]:
-        """Obtiene reservaciones pendientes"""
-        return self.repository.get_pendientes()
-    
-    def get_reservaciones_proximas(self, dias: int = 7) -> List[ReservacionTallerPrincipal]:
-        """Obtiene reservaciones próximas"""
-        return self.repository.get_proximas(dias)
-    
-    @transaction.atomic
-    def create_reservacion(self, data: Dict) -> ReservacionTallerPrincipal:
-        """Crea una nueva reservación"""
-        from solicitudes.services.solicitud_service import SolicitudService
-        
-        solicitud_id = data.get('id_solicitud')
-        tamp_block_id = data.get('id_tamp_block')
-        
-        # Validar que la solicitud exista y esté aprobada
-        solicitud_service = SolicitudService()
-        solicitud = solicitud_service.get_solicitud_by_id(solicitud_id)
-        
-        if solicitud.id_estado.clave != 'aprobada':
-            raise ValidationError("Solo se pueden crear reservaciones de solicitudes aprobadas")
-        
-        # Validar que no tenga reservación
-        if hasattr(solicitud, 'reservacion'):
-            raise ValidationError("La solicitud ya tiene una reservación")
-        
-        # Validar y reservar el bloque
-        bloque = self.calendario_service.reservar_bloque(tamp_block_id)
-        
-        # Obtener estado pendiente
-        estado_pendiente = Estado.objects.get(
-            clave='pendiente',
-            tipo=Estado.TIPO_RESERVACION
-        )
-        
-        data['id_estado'] = estado_pendiente
-        
-        try:
-            reservacion = self.repository.create(data)
-            return reservacion
-        except Exception as e:
-            # Si falla, liberar el bloque
-            self.calendario_service.liberar_bloque(tamp_block_id)
-            raise e
-    
-    def update_reservacion(self, reservacion_id: int, data: Dict) -> ReservacionTallerPrincipal:
-        """Actualiza una reservación"""
-        reservacion = self.get_reservacion_by_id(reservacion_id)
-        return self.repository.update(reservacion, data)
-    
-    @transaction.atomic
-    def iniciar_evaluacion(
-        self,
-        reservacion_id: int,
-        atendido_por_id: int
-    ) -> ReservacionTallerPrincipal:
-        """Inicia la evaluación de una reservación"""
-        reservacion = self.get_reservacion_by_id(reservacion_id)
-        
-        estado_en_proceso = Estado.objects.get(
-            clave='en_proceso',
-            tipo=Estado.TIPO_RESERVACION
-        )
-        
-        return self.repository.update(reservacion, {
-            'id_estado': estado_en_proceso,
-            'atendido_por_id': atendido_por_id,
-            'fecha_evaluacion': timezone.now(),
-            'fecha_inicio': timezone.now()
-        })
-    
-    @transaction.atomic
-    def completar_evaluacion(
-        self,
-        reservacion_id: int,
-        notas: str
-    ) -> ReservacionTallerPrincipal:
-        """Completa la evaluación de una reservación"""
-        reservacion = self.get_reservacion_by_id(reservacion_id)
-        
-        return self.repository.update(reservacion, {
-            'notas_evaluacion': notas,
-            'fecha_fin_real': timezone.now()
-        })
-    
-    def actualizar_avance_global(self, reservacion_id: int) -> ReservacionTallerPrincipal:
-        """Actualiza el avance global de la reservación"""
-        return self.repository.actualizar_avance_global(reservacion_id)
-    
-    @transaction.atomic
-    def cancelar_reservacion(self, reservacion_id: int) -> ReservacionTallerPrincipal:
-        """Cancela una reservación"""
-        reservacion = self.get_reservacion_by_id(reservacion_id)
-        
-        # Liberar el bloque
-        self.calendario_service.liberar_bloque(reservacion.id_tamp_block_id)
-        
-        estado_cancelada = Estado.objects.get(
-            clave='cancelada',
-            tipo=Estado.TIPO_RESERVACION
-        )
-        
-        return self.repository.update(reservacion, {
-            'id_estado': estado_cancelada
-        })
-    
-    def search_reservaciones(self, query: str) -> List[ReservacionTallerPrincipal]:
-        """Busca reservaciones"""
-        return self.repository.search(query)
-```
-
-
----
-
 ## 📄 ./solicitudes/services/__init__.py
 
 ```python
@@ -5165,7 +5791,8 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'autotaller.settings')
+# autotaller/wsgi.py y asgi.py
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'autotaller.settings')  # ✅ Correcto
 
 application = get_wsgi_application()
 
@@ -5174,25 +5801,36 @@ application = get_wsgi_application()
 
 ---
 
-## 📄 ./autotaller/asgi.py
+## 📄 ./autotaller/urls.py
 
 ```python
 """
-ASGI config for autotaller project.
+URL configuration for autotaller project.
 
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/4.2/howto/deployment/asgi/
+The `urlpatterns` list routes URLs to views. For more information please see:
+    https://docs.djangoproject.com/en/4.2/topics/http/urls/
+Examples:
+Function views
+    1. Add an import:  from my_app import views
+    2. Add a URL to urlpatterns:  path('', views.home, name='home')
+Class-based views
+    1. Add an import:  from other_app.views import Home
+    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
+Including another URLconf
+    1. Import the include() function: from django.urls import include, path
+    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+# autotaller/autotaller/urls.py
+from django.contrib import admin
+from django.urls import path, include
 
-import os
-
-from django.core.asgi import get_asgi_application
-
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'autotaller.settings')
-
-application = get_asgi_application()
+urlpatterns = [
+    path("admin/", admin.site.urls),
+    # Incluye las urls de cada app
+    path("", include("core.urls")),             # home / endpoints del core
+    path("servicios/", include("servicios.urls")),
+    path("solicitudes/", include("solicitudes.urls")),
+]
 
 ```
 
@@ -5258,9 +5896,34 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    
+    # ✅ AGREGAR ESTOS:
+    'middlewares.logging_middleware.RequestLoggingMiddleware',
+    'middlewares.error_handler_middleware.ErrorHandlerMiddleware',
+    'middlewares.auth_middleware.UserActiveCheckMiddleware',
 ]
 
-ROOT_URLCONF = 'config.urls'
+# autotaller/settings.py
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': 'debug.log',
+        },
+    },
+    'root': {
+        'handlers': ['console', 'file'],
+        'level': 'INFO',
+    },
+}
+
+# En autotaller/settings.py
+ROOT_URLCONF = 'autotaller.urls'  # ✅ Debe ser 'autotaller'
 
 TEMPLATES = [
     {
@@ -5358,35 +6021,24 @@ CORS_ALLOW_CREDENTIALS = True
 
 ---
 
-## 📄 ./autotaller/urls.py
+## 📄 ./autotaller/asgi.py
 
 ```python
 """
-URL configuration for autotaller project.
+ASGI config for autotaller project.
 
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/4.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+It exposes the ASGI callable as a module-level variable named ``application``.
+
+For more information on this file, see
+https://docs.djangoproject.com/en/4.2/howto/deployment/asgi/
 """
-# autotaller/autotaller/urls.py
-from django.contrib import admin
-from django.urls import path, include
 
-urlpatterns = [
-    path("admin/", admin.site.urls),
-    # Incluye las urls de cada app
-    path("", include("core.urls")),             # home / endpoints del core
-    path("servicios/", include("servicios.urls")),
-    path("solicitudes/", include("solicitudes.urls")),
-]
+import os
+
+from django.core.asgi import get_asgi_application
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'autotaller.settings')
+
+application = get_asgi_application()
 
 ```

@@ -14,6 +14,8 @@ class RoleBasedAccessMiddleware(MiddlewareMixin):
         '/admin/',
         '/api/core/auth/login/',
         '/api/core/auth/register/',
+        '/api/core/auth/logout/',
+        '/api/core/auth/current-user/',
     ]
     
     # Rutas por tipo de usuario
@@ -76,8 +78,20 @@ class RoleBasedAccessMiddleware(MiddlewareMixin):
 class UserActiveCheckMiddleware(MiddlewareMixin):
     """Middleware para verificar que el usuario esté activo"""
     
+    # Rutas que no necesitan verificación de usuario activo
+    SKIP_ROUTES = [
+        '/admin/',
+        '/api/core/auth/login/',
+        '/api/core/auth/register/',
+        '/api/core/auth/logout/',
+    ]
+    
     def process_request(self, request):
         """Verifica si el usuario está activo"""
+        
+        # Saltar verificación para rutas públicas
+        if any(request.path.startswith(route) for route in self.SKIP_ROUTES):
+            return None
         
         if request.user.is_authenticated:
             if hasattr(request.user, 'activo') and not request.user.activo:
@@ -87,3 +101,4 @@ class UserActiveCheckMiddleware(MiddlewareMixin):
                 )
         
         return None
+

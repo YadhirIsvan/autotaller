@@ -1,7 +1,61 @@
+# ================================
+# CORE DJANGO
+# ================================
 Django==5.0
-djangorestframework==3.14.0
-django-cors-headers==4.3.1
 python-decouple==3.8
+
+# ================================
+# DATABASE
+# ================================
 psycopg2-binary==2.9.9
+
+# ================================
+# REST FRAMEWORK
+# ================================
+djangorestframework==3.14.0
+
+# ================================
+# CORS
+# ================================
+django-cors-headers==4.3.1
+
+# ================================
+# IMAGES/FILES
+# ================================
 Pillow==10.2.0
-python-decouple
+
+# ================================
+# UTILITIES
+# ================================
+pytz==2024.1
+
+# ================================
+# DEVELOPMENT & TESTING (Opcional)
+# ================================
+# Descomentar si quieres usar estas herramientas
+
+# Testing
+# pytest==7.4.3
+# pytest-django==4.7.0
+# coverage==7.3.2
+
+# Code Quality
+# black==23.12.1
+# flake8==6.1.0
+# pylint==3.0.3
+
+# API Documentation
+# drf-yasg==1.21.7
+
+# Debugging
+# django-debug-toolbar==4.2.0
+# ipython==8.18.1
+
+# ================================
+# PRODUCTION (Opcional)
+# ================================
+# Descomentar para producción
+
+# gunicorn==21.2.0
+# whitenoise==6.6.0
+# django-environ==0.11.2
