@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    container_name: postgres_autotaller
+    restart: always
+    environment:
+      POSTGRES_DB: autotaller_db
+      POSTGRES_USER: autotaller_user
+      POSTGRES_PASSWORD: superpass123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  web:
+    build: .
+    container_name: django_autotaller
+    restart: always
+    command: bash -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      DB_NAME: autotaller_db
+      DB_USER: autotaller_user
+      DB_PASSWORD: superpass123
+      DB_HOST: db
+      DB_PORT: 5432
+
+# (opcional) pgAdmin para ver la base de datos en navegador
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin_autotaller
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:

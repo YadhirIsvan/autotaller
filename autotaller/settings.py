@@ -45,9 +45,34 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    
+    # ✅ AGREGAR ESTOS:
+    'middlewares.logging_middleware.RequestLoggingMiddleware',
+    'middlewares.error_handler_middleware.ErrorHandlerMiddleware',
+    'middlewares.auth_middleware.UserActiveCheckMiddleware',
 ]
 
-ROOT_URLCONF = 'config.urls'
+# autotaller/settings.py
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': 'debug.log',
+        },
+    },
+    'root': {
+        'handlers': ['console', 'file'],
+        'level': 'INFO',
+    },
+}
+
+# En autotaller/settings.py
+ROOT_URLCONF = 'autotaller.urls'  # ✅ Debe ser 'autotaller'
 
 TEMPLATES = [
     {

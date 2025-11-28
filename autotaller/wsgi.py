@@ -11,6 +11,7 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'autotaller.settings')
+# autotaller/wsgi.py y asgi.py
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'autotaller.settings')  # ✅ Correcto
 
 application = get_wsgi_application()
